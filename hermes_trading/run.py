@@ -2,9 +2,16 @@
 import asyncio
 import argparse
 import sys
+import threading
 from pathlib import Path
 
 from .loop import TradingLoop
+
+
+def start_dashboard():
+    """Start Flask dashboard in background thread."""
+    from .dashboard import app
+    app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
 
 
 async def main():
@@ -32,6 +39,12 @@ async def main():
     print(f"Booting hermes-trading worker")
     print(f"Asset: {asset}")
     print(f"State dir: {state_dir}")
+    print(f"Dashboard: http://localhost:5000")
+
+    # Start dashboard in background thread
+    dashboard_thread = threading.Thread(target=start_dashboard, daemon=True)
+    dashboard_thread.start()
+    print("Dashboard started on port 5000")
 
     loop = TradingLoop(state_dir=state_dir, asset=asset)
     await loop.run()
