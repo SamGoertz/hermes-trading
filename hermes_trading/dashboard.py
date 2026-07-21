@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from datetime import datetime
 
-from flask import Flask, jsonify, render_template_string
+from flask import Flask, jsonify
 import yaml
 
 app = Flask(__name__)
@@ -43,6 +43,13 @@ def dashboard():
     latest_hyp = hypotheses[-1] if hypotheses else {}
     trading_enabled = goal.get("trading_enabled", True)
 
+    status_color = "#1a4d2e" if trading_enabled else "#8b0000"
+    status_text = "TRADING ACTIVE" if trading_enabled else "TRADING STOPPED"
+    status_emoji = "ACTIVE" if trading_enabled else "STOPPED"
+    button_color = "#dc2626" if trading_enabled else "#22c55e"
+    button_text = "STOP TRADING" if trading_enabled else "RESUME TRADING"
+    status_indicator = "green" if trading_enabled else "red"
+
     html = f"""
     <!DOCTYPE html>
     <html>
@@ -67,7 +74,7 @@ def dashboard():
                 text-align: center;
             }}
             .status {{
-                background: {"#1a4d2e" if trading_enabled else "#8b0000"};
+                background: {status_color};
                 padding: 20px;
                 border-radius: 8px;
                 margin-bottom: 20px;
@@ -86,7 +93,7 @@ def dashboard():
                 border: none;
                 border-radius: 8px;
                 cursor: pointer;
-                background: {"#dc2626" if trading_enabled else "#22c55e"};
+                background: {button_color};
                 color: white;
                 transition: all 0.3s;
             }}
@@ -156,18 +163,6 @@ def dashboard():
                 background: #1a2a1a;
                 border: 1px solid #2a4d2a;
             }}
-            .trades-list {{
-                max-height: 300px;
-                overflow-y: auto;
-            }}
-            .trade {{
-                padding: 10px;
-                background: #2a2a2a;
-                margin-bottom: 8px;
-                border-radius: 4px;
-                font-size: 12px;
-                border-left: 4px solid #22c55e;
-            }}
             .refresh-time {{
                 text-align: center;
                 color: #666;
@@ -178,34 +173,32 @@ def dashboard():
     </head>
     <body>
         <div class="container">
-            <h1>🤖 Hermes Trading</h1>
+            <h1>Hermes Trading Agent</h1>
 
             <div class="status">
                 <div class="status-text">
-                    Status: <span style="color: {"#22c55e" if trading_enabled else "#ff6b6b"}">
-                    {"🟢 TRADING ACTIVE" if trading_enabled else "🔴 TRADING STOPPED"}
-                    </span>
+                    Status: <span style="color: #22c55e;">{status_emoji}</span>
                 </div>
                 <button class="kill-switch" onclick="toggleTrading()">
-                    {"⏹ STOP TRADING" if trading_enabled else "▶ RESUME TRADING"}
+                    {button_text}
                 </button>
             </div>
 
             <div class="grid">
                 <div class="card">
                     <div class="card-title">Strategy Version</div>
-                    <div class="card-value">{strategy.get("version", "??")}</div>
-                    <div class="card-meta">Current v{strategy.get("version", "?")}</div>
+                    <div class="card-value">v{strategy.get("version", "??")}</div>
+                    <div class="card-meta">Current Version</div>
                 </div>
                 <div class="card">
                     <div class="card-title">Total Trades</div>
                     <div class="card-value">{len(trades)}</div>
-                    <div class="card-meta">{len(trades)} paper trades</div>
+                    <div class="card-meta">Paper Trades</div>
                 </div>
                 <div class="card">
                     <div class="card-title">Reflections</div>
                     <div class="card-value">{len(hypotheses)}</div>
-                    <div class="card-meta">{len(hypotheses)} strategy updates</div>
+                    <div class="card-meta">Strategy Updates</div>
                 </div>
             </div>
 
@@ -248,21 +241,6 @@ def dashboard():
                     <span class="value">{strategy.get("position_size_r", "N/A")} R</span>
                 </div>
             </div>
-
-            {"<div class=\"section\">" if latest_hyp else ""}
-                {f"<div class=\"section-title\">Last Reflection (v{latest_hyp.get(\"version\", \"?\")}) → v{int(latest_hyp.get(\"version\", 0))+1}</div>" if latest_hyp else ""}
-                {f"<div class=\"row\"><span class=\"label\">Changed:</span><span class=\"value\">{latest_hyp.get(\"variable_changed\", \"N/A\")}</span></div>" if latest_hyp else ""}
-                {f"<div class=\"row\"><span class=\"label\">From:</span><span class=\"value\">{latest_hyp.get(\"old_value\", \"N/A\")}</span></div>" if latest_hyp else ""}
-                {f"<div class=\"row\"><span class=\"label\">To:</span><span class=\"value\">{latest_hyp.get(\"new_value\", \"N/A\")}</span></div>" if latest_hyp else ""}
-                {f"<div class=\"row\"><span class=\"label\">Reasoning:</span><span class=\"value\">{latest_hyp.get(\"reasoning\", \"N/A\")}</span></div>" if latest_hyp else ""}
-            {"</div>" if latest_hyp else ""}
-
-            {"<div class=\"section\">" if trades else ""}
-                {f"<div class=\"section-title\">Recent Trades (Last 5)</div>" if trades else ""}
-                {f"<div class=\"trades-list\">" if trades else ""}
-                    {"".join([f"<div class=\"trade\">Trade @ ${t.get(\"entry_price\", \"?\")}</div>" for t in trades[-5:]]) if trades else ""}
-                {f"</div>" if trades else ""}
-            {"</div>" if trades else ""}
 
             <div class="refresh-time">
                 Last updated: {datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")}
