@@ -1,7 +1,6 @@
 """24/7 trading loop."""
 import asyncio
 import json
-import os
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -10,9 +9,7 @@ import aiofiles
 import numpy as np
 import pandas as pd
 import yaml
-
-from alpaca.data.historical import StockHistoricalDataClient
-from alpaca.data.requests import StockLatestQuoteRequest
+import yfinance as yf
 
 from .score import score as score_trades
 
@@ -21,18 +18,8 @@ class TradingLoop:
     def __init__(self, state_dir: Path, asset: str):
         self.state_dir = state_dir
         self.asset = asset
-        self.api_key = os.getenv("ALPACA_API_KEY", "")
-        self.api_secret = os.getenv("ALPACA_API_SECRET", "")
         self.consecutive_failures = 0
         self.circuit_broken = False
-
-        # Initialize Alpaca client if API keys available
-        self.alpaca_client = None
-        if self.api_key and self.api_secret:
-            try:
-                self.alpaca_client = StockHistoricalDataClient(self.api_key, self.api_secret)
-            except Exception as e:
-                print(f"Warning: Could not initialize Alpaca client: {e}")
 
     async def _load_yaml(self, path: Path) -> dict:
         async with aiofiles.open(path, "r") as f:
@@ -46,19 +33,16 @@ class TradingLoop:
         return await self._load_yaml(self.state_dir / "strategy.yaml")
 
     async def _fetch_price(self) -> Optional[float]:
-        """Fetch current stock price from Alpaca with retries."""
-        if not self.alpaca_client:
-            print("Alpaca client not initialized - need API keys in .env")
-            return None
-
+        """Fetch current stock price with retries."""
         for attempt in range(3):
             try:
-                request = StockLatestQuoteRequest(symbols=[self.asset])
-                quotes = self.alpaca_client.get_stock_latest_quote(request)
-                if self.asset in quotes:
-                    return float(quotes[self.asset].ask_price)
+                ticker = yf.Ticker(self.asset)
+                data = ticker.history(period="1d")
+                if not data.empty:
+                    price = float(data['Close'].iloc[-1])
+                    return price
                 else:
-                    print(f"No quote data for {self.asset}")
+                    print(f"No data for {self.asset}")
                     return None
             except Exception as e:
                 wait_time = 2 ** attempt
