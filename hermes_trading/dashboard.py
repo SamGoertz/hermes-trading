@@ -7,7 +7,12 @@ from flask import Flask, jsonify
 import yaml
 
 app = Flask(__name__)
-STATE_DIR = Path.home() / "hermes-trading" / "state"
+
+# Use /app/state in Docker, ~/hermes-trading/state locally
+if Path("/app/state").exists():
+    STATE_DIR = Path("/app/state")
+else:
+    STATE_DIR = Path.home() / "hermes-trading" / "state"
 
 
 def load_yaml(path):
