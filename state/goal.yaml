@@ -1,4 +1,4 @@
-asset: "BTC/USDT"
+asset: "AAPL"
 target_return_30d: 0.10
 max_drawdown: 0.05
 min_sharpe: 2.0
