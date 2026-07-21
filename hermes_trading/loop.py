@@ -74,9 +74,12 @@ class TradingLoop:
         async with aiofiles.open(heartbeat_file, "w") as f:
             await f.write(json.dumps(hb, indent=2))
 
-    async def _check_entry(self, strategy: dict, price: float, recent_prices: list) -> bool:
+    async def _check_entry(self, strategy: dict, price: float, recent_prices: list, goal: dict) -> bool:
         """Evaluate entry signal."""
         if strategy["entry"]["direction"] != "long":
+            return False
+
+        if not goal.get("trading_enabled", True):
             return False
 
         if strategy["entry"]["indicator"] == "rsi":
@@ -85,6 +88,22 @@ class TradingLoop:
             rsi = self._compute_rsi(recent_prices)
             return rsi < strategy["entry"]["threshold"]
         return False
+
+    async def _check_risk_limits(self, goal: dict, trades: list) -> tuple:
+        """Check if trading should be halted due to risk limits.
+        Returns (allowed, reason)"""
+        max_pos = goal.get("max_position_size_usd", 1000.0)
+        max_daily_loss = goal.get("max_daily_loss_usd", 10000.0)
+
+        today = pd.Timestamp.utcnow().date()
+        today_trades = [t for t in trades if pd.Timestamp(t.get("timestamp", "")).date() == today]
+
+        daily_loss = sum([t.get("pnl", 0) for t in today_trades if t.get("pnl", 0) < 0])
+
+        if abs(daily_loss) > max_daily_loss:
+            return False, f"Daily loss limit exceeded: ${abs(daily_loss):.2f} > ${max_daily_loss:.2f}"
+
+        return True, ""
 
     def _compute_rsi(self, prices: list, period: int = 14) -> float:
         """Compute RSI."""
@@ -124,7 +143,13 @@ class TradingLoop:
         recent_prices = [t.get("price") for t in trades[-30:] if "price" in t]
         recent_prices.append(price)
 
-        entry_signal = await self._check_entry(strategy, price, recent_prices)
+        allowed, reason = await self._check_risk_limits(goal, trades)
+        if not allowed:
+            print(f"Trading halted: {reason}")
+            await self._write_heartbeat("trading_halted", price)
+            return
+
+        entry_signal = await self._check_entry(strategy, price, recent_prices, goal)
         if entry_signal:
             trade = {
                 "entry_price": price,

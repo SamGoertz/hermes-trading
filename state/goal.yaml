@@ -5,3 +5,8 @@ min_sharpe: 2.0
 failure_below: -0.04
 reflection_every: 1
 one_variable_only: true
+
+# RISK LIMITS (hard stops)
+max_position_size_usd: 100.0
+max_daily_loss_usd: 500.0
+trading_enabled: true
