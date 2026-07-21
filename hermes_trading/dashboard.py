@@ -203,8 +203,12 @@ def dashboard():
             </div>
 
             <div class="section limits">
-                <div class="section-title">Risk Limits (Hard Stops) - Editable</div>
+                <div class="section-title">Configuration - Editable</div>
                 <form id="limitsForm" onsubmit="saveLimits(event)">
+                    <div class="row">
+                        <span class="label">Trading Asset:</span>
+                        <input type="text" id="asset" value="{goal.get("asset", "AAPL")}" style="width: 100px; padding: 4px;">
+                    </div>
                     <div class="row">
                         <span class="label">Max Position Size (USD):</span>
                         <input type="number" id="maxPos" value="{goal.get("max_position_size_usd", 100)}" step="10" min="0" style="width: 100px; padding: 4px;">
@@ -222,7 +226,7 @@ def dashboard():
                         <input type="number" id="maxDD" value="{goal.get("max_drawdown", 0)*100:.1f}" step="0.5" min="0" style="width: 100px; padding: 4px;">
                     </div>
                     <div class="row" style="margin-top: 15px;">
-                        <button type="submit" style="padding: 8px 16px; background: #22c55e; color: #000; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Save Limits</button>
+                        <button type="submit" style="padding: 8px 16px; background: #22c55e; color: #000; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Save All Settings</button>
                     </div>
                 </form>
                 <div id="saveStatus" style="margin-top: 10px; font-size: 12px; color: #888;"></div>
@@ -294,6 +298,7 @@ Or click Cancel to keep trading stopped.`;
             function saveLimits(e) {{
                 e.preventDefault();
                 const data = {{
+                    asset: document.getElementById('asset').value,
                     max_position_size_usd: document.getElementById('maxPos').value,
                     max_daily_loss_usd: document.getElementById('maxLoss').value,
                     target_return_30d: document.getElementById('targetRtn').value,
@@ -306,11 +311,11 @@ Or click Cancel to keep trading stopped.`;
                     body: JSON.stringify(data)
                 }}).then(r => r.json())
                   .then(result => {{
-                    document.getElementById('saveStatus').innerText = 'Limits saved successfully!';
+                    document.getElementById('saveStatus').innerText = 'Settings saved! Reloading...';
                     setTimeout(() => location.reload(), 1000);
                   }})
                   .catch(e => {{
-                    document.getElementById('saveStatus').innerText = 'Error saving limits: ' + e;
+                    document.getElementById('saveStatus').innerText = 'Error: ' + e;
                   }});
             }}
 
@@ -337,11 +342,13 @@ def toggle_trading():
 
 @app.route("/api/update-limits", methods=["POST"])
 def update_limits():
-    """Update risk limits"""
+    """Update risk limits and asset"""
     from flask import request
     data = request.get_json()
     goal = load_yaml(STATE_DIR / "goal.yaml")
 
+    if "asset" in data:
+        goal["asset"] = data["asset"].upper()
     if "max_position_size_usd" in data:
         goal["max_position_size_usd"] = float(data["max_position_size_usd"])
     if "max_daily_loss_usd" in data:
