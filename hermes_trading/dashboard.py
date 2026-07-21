@@ -203,23 +203,29 @@ def dashboard():
             </div>
 
             <div class="section limits">
-                <div class="section-title">Risk Limits (Hard Stops)</div>
-                <div class="row">
-                    <span class="label">Max Position Size:</span>
-                    <span class="value">${goal.get("max_position_size_usd", "N/A")}</span>
-                </div>
-                <div class="row">
-                    <span class="label">Max Daily Loss:</span>
-                    <span class="value">${goal.get("max_daily_loss_usd", "N/A")}</span>
-                </div>
-                <div class="row">
-                    <span class="label">Target Return (30d):</span>
-                    <span class="value">{goal.get("target_return_30d", 0)*100:.1f}%</span>
-                </div>
-                <div class="row">
-                    <span class="label">Max Drawdown Allowed:</span>
-                    <span class="value">{goal.get("max_drawdown", 0)*100:.1f}%</span>
-                </div>
+                <div class="section-title">Risk Limits (Hard Stops) - Editable</div>
+                <form id="limitsForm" onsubmit="saveLimits(event)">
+                    <div class="row">
+                        <span class="label">Max Position Size (USD):</span>
+                        <input type="number" id="maxPos" value="{goal.get("max_position_size_usd", 100)}" step="10" min="0" style="width: 100px; padding: 4px;">
+                    </div>
+                    <div class="row">
+                        <span class="label">Max Daily Loss (USD):</span>
+                        <input type="number" id="maxLoss" value="{goal.get("max_daily_loss_usd", 500)}" step="50" min="0" style="width: 100px; padding: 4px;">
+                    </div>
+                    <div class="row">
+                        <span class="label">Target Return (%):</span>
+                        <input type="number" id="targetRtn" value="{goal.get("target_return_30d", 0)*100:.1f}" step="0.5" min="0" style="width: 100px; padding: 4px;">
+                    </div>
+                    <div class="row">
+                        <span class="label">Max Drawdown (%):</span>
+                        <input type="number" id="maxDD" value="{goal.get("max_drawdown", 0)*100:.1f}" step="0.5" min="0" style="width: 100px; padding: 4px;">
+                    </div>
+                    <div class="row" style="margin-top: 15px;">
+                        <button type="submit" style="padding: 8px 16px; background: #22c55e; color: #000; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Save Limits</button>
+                    </div>
+                </form>
+                <div id="saveStatus" style="margin-top: 10px; font-size: 12px; color: #888;"></div>
             </div>
 
             <div class="section">
@@ -258,6 +264,29 @@ def dashboard():
                 }}).catch(e => alert('Error: ' + e));
             }}
 
+            function saveLimits(e) {{
+                e.preventDefault();
+                const data = {{
+                    max_position_size_usd: document.getElementById('maxPos').value,
+                    max_daily_loss_usd: document.getElementById('maxLoss').value,
+                    target_return_30d: document.getElementById('targetRtn').value,
+                    max_drawdown: document.getElementById('maxDD').value,
+                }};
+
+                fetch('/api/update-limits', {{
+                    method: 'POST',
+                    headers: {{'Content-Type': 'application/json'}},
+                    body: JSON.stringify(data)
+                }}).then(r => r.json())
+                  .then(result => {{
+                    document.getElementById('saveStatus').innerText = 'Limits saved successfully!';
+                    setTimeout(() => location.reload(), 1000);
+                  }})
+                  .catch(e => {{
+                    document.getElementById('saveStatus').innerText = 'Error saving limits: ' + e;
+                  }});
+            }}
+
             // Auto-refresh every 30 seconds
             setTimeout(() => location.reload(), 30000);
         </script>
@@ -277,6 +306,28 @@ def toggle_trading():
         yaml.dump(goal, f, default_flow_style=False)
 
     return jsonify({"trading_enabled": goal["trading_enabled"]})
+
+
+@app.route("/api/update-limits", methods=["POST"])
+def update_limits():
+    """Update risk limits"""
+    from flask import request
+    data = request.get_json()
+    goal = load_yaml(STATE_DIR / "goal.yaml")
+
+    if "max_position_size_usd" in data:
+        goal["max_position_size_usd"] = float(data["max_position_size_usd"])
+    if "max_daily_loss_usd" in data:
+        goal["max_daily_loss_usd"] = float(data["max_daily_loss_usd"])
+    if "target_return_30d" in data:
+        goal["target_return_30d"] = float(data["target_return_30d"]) / 100.0
+    if "max_drawdown" in data:
+        goal["max_drawdown"] = float(data["max_drawdown"]) / 100.0
+
+    with open(STATE_DIR / "goal.yaml", "w") as f:
+        yaml.dump(goal, f, default_flow_style=False)
+
+    return jsonify({"success": True, "goal": goal})
 
 
 @app.route("/api/status")
