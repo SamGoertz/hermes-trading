@@ -256,6 +256,33 @@ def dashboard():
 
         <script>
             function toggleTrading() {{
+                const currentStatus = document.querySelector('.status-text span').innerText.includes('ACTIVE');
+
+                if (!currentStatus) {{
+                    // Trading is stopped - show warning before resuming
+                    const warningMessage = `
+⚠️ WARNING - RESUME TRADING ⚠️
+
+You are about to RESUME LIVE PAPER TRADING.
+
+ACKNOWLEDGMENT:
+• This agent executes AUTOMATED trades
+• Past performance does not guarantee future results
+• The strategy may lose money
+• You accept full responsibility for losses
+• You have reviewed and approved the current risk limits
+• You understand this is paper mode (simulated trades)
+
+Type "I ACCEPT RISK" to resume trading.
+Or click Cancel to keep trading stopped.`;
+
+                    const userInput = prompt(warningMessage);
+                    if (userInput !== 'I ACCEPT RISK') {{
+                        alert('Trading remains stopped.');
+                        return;
+                    }}
+                }}
+
                 fetch('/api/toggle-trading', {{
                     method: 'POST',
                     headers: {{'Content-Type': 'application/json'}}
