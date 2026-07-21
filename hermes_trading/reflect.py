@@ -92,7 +92,7 @@ def main():
         with open(hypotheses_file, "a") as f:
             f.write(json.dumps(hypothesis) + "\n")
 
-        print(f"✓ Reflection complete. Strategy bumped to v{strategy['version']}")
+        print(f"[OK] Reflection complete. Strategy bumped to v{strategy['version']}")
         print(f"  Changed: {hypothesis['variable_changed']}")
         print(f"  Reasoning: {hypothesis['reasoning']}")
     elif args.hermes:
