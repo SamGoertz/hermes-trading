@@ -40,6 +40,24 @@ def load_hypotheses():
         return [json.loads(line) for line in f if line.strip()]
 
 
+def load_trackb_trades():
+    """Load Track B trades from trackb/trades.jsonl"""
+    trades_file = STATE_DIR / "trackb" / "trades.jsonl"
+    if not trades_file.exists():
+        return []
+    with open(trades_file) as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+
+def load_trackb_hypotheses():
+    """Load Track B hypotheses from trackb/hypotheses.jsonl"""
+    hyp_file = STATE_DIR / "trackb" / "hypotheses.jsonl"
+    if not hyp_file.exists():
+        return []
+    with open(hyp_file) as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+
 def calculate_rsi(prices, period=14):
     """Calculate RSI series."""
     if len(prices) < period + 1:
@@ -555,6 +573,8 @@ def dashboard():
     strategy = load_yaml(STATE_DIR / "strategy.yaml")
     trades = load_trades()
     hypotheses = load_hypotheses()
+    trackb_trades = load_trackb_trades()
+    trackb_hypotheses = load_trackb_hypotheses()
 
     latest_hyp = hypotheses[-1] if hypotheses else {}
     trading_enabled = goal.get("trading_enabled", True)
@@ -746,6 +766,19 @@ def dashboard():
                 </div>
             </div>
 
+            <div class="grid" style="grid-template-columns: 1fr 1fr;">
+                <div class="card">
+                    <div class="card-title">Track A (RSI Threshold)</div>
+                    <div class="card-value" id="trackA_trades">{len(trades)}</div>
+                    <div class="card-meta">Trades</div>
+                </div>
+                <div class="card">
+                    <div class="card-title">Track B (Divergence)</div>
+                    <div class="card-value" id="trackB_trades">{len(trackb_trades)}</div>
+                    <div class="card-meta">Trades</div>
+                </div>
+            </div>
+
             <div class="section limits">
                 <div class="section-title">Configuration - Editable</div>
                 <form id="limitsForm" onsubmit="saveLimits(event)">
@@ -910,11 +943,13 @@ def update_limits():
 
 @app.route("/api/status")
 def api_status():
-    """JSON status endpoint"""
+    """JSON status endpoint with track-specific data"""
     goal = load_yaml(STATE_DIR / "goal.yaml")
     strategy = load_yaml(STATE_DIR / "strategy.yaml")
     trades = load_trades()
     hypotheses = load_hypotheses()
+    trackb_trades = load_trackb_trades()
+    trackb_hypotheses = load_trackb_hypotheses()
 
     return jsonify({
         "trading_enabled": goal.get("trading_enabled", True),
@@ -922,6 +957,16 @@ def api_status():
         "total_trades": len(trades),
         "total_reflections": len(hypotheses),
         "asset": goal.get("asset", "BTC/USDT"),
+        "trackA": {
+            "trades": len(trades),
+            "reflections": len(hypotheses),
+            "strategy_version": "02"
+        },
+        "trackB": {
+            "trades": len(trackb_trades),
+            "reflections": len(trackb_hypotheses),
+            "strategy_version": "01b"
+        }
     })
 
 

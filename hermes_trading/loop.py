@@ -122,6 +122,64 @@ class TradingLoop:
         rs = avg_gain / avg_loss
         return 100.0 - (100.0 / (1.0 + rs))
 
+    def _detect_rsi_higher_low(self, rsi_values: list, lookback: int = 3) -> bool:
+        """Check if RSI made a higher low in last N bars"""
+        if len(rsi_values) < lookback + 1:
+            return False
+        recent_rsi = rsi_values[-lookback:]
+        prev_rsi = rsi_values[-(lookback + 1)]
+        return min(recent_rsi) > prev_rsi
+
+    def _detect_price_lower_low(self, prices: list, lookback: int = 3) -> bool:
+        """Check if price made a lower low in last N bars"""
+        if len(prices) < lookback + 1:
+            return False
+        recent_prices = prices[-lookback:]
+        prev_price = prices[-(lookback + 1)]
+        return min(recent_prices) < prev_price
+
+    def _detect_divergence(self, prices: list, rsi_values: list, lookback: int = 3) -> bool:
+        """Bullish divergence: higher RSI low + lower price low"""
+        return self._detect_rsi_higher_low(rsi_values, lookback) and \
+               self._detect_price_lower_low(prices, lookback)
+
+    def _check_volume_filters(self, current_price: float, volume: int = None) -> bool:
+        """Check if symbol meets volume/price criteria"""
+        if current_price < 2.0 or current_price > 20.0:
+            return False
+        # Note: Alpaca doesn't expose RVol easily; skip that filter
+        # Check volume if available from yfinance
+        if volume and volume < 500000:
+            return False
+        return True
+
+    async def _check_entry_divergence(self, strategy: dict, price: float,
+                                       recent_prices: list, recent_rsi: list,
+                                       goal: dict) -> bool:
+        """Divergence-based entry for Track B"""
+        if strategy["entry"]["direction"] != "long":
+            return False
+        if not goal.get("trading_enabled", True):
+            return False
+
+        if strategy["entry"]["indicator"] == "divergence":
+            # Check RSI < 35 in last 3 bars
+            if len(recent_rsi) < 3:
+                return False
+            if not all(r < strategy["entry"]["threshold"] for r in recent_rsi[-3:]):
+                return False
+
+            # Check divergence
+            if not self._detect_divergence(recent_prices, recent_rsi, 3):
+                return False
+
+            # Check volume/price filters
+            if not self._check_volume_filters(price):
+                return False
+
+            return True
+        return False
+
     async def _one_iteration(self):
         """Single loop iteration."""
         if self.circuit_broken:
