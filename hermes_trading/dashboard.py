@@ -1,6 +1,6 @@
 """Web dashboard for monitoring trading agent.
 
-VERSION: 1.5.0 - Alpaca Autoscan + Watchlist + Hybrid Stop Loss
+VERSION: 1.6.0 - Daily Gainers Screener (Pivoted Strategy)
 """
 import json
 from pathlib import Path
