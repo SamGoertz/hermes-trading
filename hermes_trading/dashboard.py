@@ -2116,8 +2116,8 @@ def autoscan():
     Filters:
     - Price: $2-20
     - Volume: >= 500k shares (latest bar)
-    - RVol: > 2.0x (current volume / SMA(volume, 20))
-    - RSI(14): < 45 (Wilder's smoothing)
+    - RVol: > 1.5x (current volume / SMA(volume, 20))
+    - RSI(14): < 55 (Wilder's smoothing)
 
     Returns: Top results sorted by RSI ascending (most oversold first)
     Cache TTL: 1 hour
@@ -2251,18 +2251,18 @@ def autoscan():
                     continue
 
                 rvol = current_volume / sma_vol
-                if rvol <= 2.0:
+                if rvol <= 1.5:
                     continue
 
-                # Filter 4: RSI(14) < 45 (Wilder's smoothing via calculate_rsi)
+                # Filter 4: RSI(14) < 55 (Wilder's smoothing via calculate_rsi)
                 rsi_values = calculate_rsi(closes, period=14)
 
                 if not rsi_values or len(rsi_values) < 3:
                     continue
 
-                # Check if RSI < 45 in last 3 bars
+                # Check if RSI < 55 in last 3 bars
                 last_3_rsi = rsi_values[-3:]
-                if not any(rsi < 45 for rsi in last_3_rsi):
+                if not any(rsi < 55 for rsi in last_3_rsi):
                     continue
 
                 current_rsi = rsi_values[-1]
