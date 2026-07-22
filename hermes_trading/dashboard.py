@@ -260,6 +260,20 @@ def scanner():
                 </button>
             </div>
 
+            <div style="background: #1a3a1a; padding: 12px 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #2a6d2a;">
+                <div style="font-size: 13px; color: #888; text-transform: uppercase; margin-bottom: 5px;">Market Status (Central Time)</div>
+                <div style="display: flex; gap: 30px;">
+                    <div>
+                        <span style="color: #22c55e; font-weight: bold;">Market Opens:</span>
+                        <span id="openCountdown" style="margin-left: 8px; font-size: 14px;">—</span>
+                    </div>
+                    <div>
+                        <span style="color: #ef4444; font-weight: bold;">Market Closes:</span>
+                        <span id="closeCountdown" style="margin-left: 8px; font-size: 14px;">—</span>
+                    </div>
+                </div>
+            </div>
+
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
                 <h1>Candlestick Scanner</h1>
                 <div class="controls">
@@ -394,6 +408,63 @@ def scanner():
                 }
             }
 
+            // Update market open/close countdown timers
+            function updateMarketCountdown() {
+                // Get current time in Central Time
+                const now = new Date();
+                const ctNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Chicago' }));
+                const dayOfWeek = ctNow.getDay();
+                const hours = ctNow.getHours();
+                const minutes = ctNow.getMinutes();
+                const seconds = ctNow.getSeconds();
+
+                // Market times (CT): Open 8:30 AM, Close 3:00 PM
+                const OPEN_HOUR = 8;
+                const OPEN_MIN = 30;
+                const CLOSE_HOUR = 15;
+                const CLOSE_MIN = 0;
+
+                // Check if market is open (Mon-Fri, 8:30-15:00 CT)
+                const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+                const currentMinutes = hours * 60 + minutes;
+                const openMinutes = OPEN_HOUR * 60 + OPEN_MIN;
+                const closeMinutes = CLOSE_HOUR * 60 + CLOSE_MIN;
+                const isMarketHours = currentMinutes >= openMinutes && currentMinutes < closeMinutes;
+
+                let openText, closeText;
+
+                if (!isWeekday) {
+                    // Weekend or holiday
+                    openText = '🔴 CLOSED (Weekend)';
+                    closeText = '📅 Opens Monday 8:30 AM';
+                } else if (isMarketHours) {
+                    // Market is open
+                    const minutesToClose = closeMinutes - currentMinutes;
+                    const hoursToClose = Math.floor(minutesToClose / 60);
+                    const minsToClose = minutesToClose % 60;
+                    openText = '🟢 OPEN';
+                    closeText = `Closes in ${hoursToClose}h ${minsToClose}m`;
+                } else if (currentMinutes < openMinutes) {
+                    // Before market open
+                    const minutesToOpen = openMinutes - currentMinutes;
+                    const hoursToOpen = Math.floor(minutesToOpen / 60);
+                    const minsToOpen = minutesToOpen % 60;
+                    openText = `Opens in ${hoursToOpen}h ${minsToOpen}m`;
+                    closeText = `🔴 CLOSED`;
+                } else {
+                    // After market close
+                    const minutesUntilMidnight = (24 * 60) - currentMinutes;
+                    const minutesToOpenTomorrow = minutesUntilMidnight + openMinutes;
+                    const hoursToOpen = Math.floor(minutesToOpenTomorrow / 60);
+                    const minsToOpen = minutesToOpenTomorrow % 60;
+                    openText = `Opens tomorrow ${hoursToOpen}h ${minsToOpen}m`;
+                    closeText = '🔴 CLOSED';
+                }
+
+                document.getElementById('openCountdown').textContent = openText;
+                document.getElementById('closeCountdown').textContent = closeText;
+            }
+
             // Load trading status on page load
             async function loadTradingStatus() {
                 try {
@@ -481,7 +552,11 @@ Or click Cancel to keep trading stopped.`;
                 document.getElementById('zoom').value = savedZoom;
 
                 loadTradingStatus();
+                updateMarketCountdown();
                 loadChart();
+
+                // Update countdown every second
+                setInterval(updateMarketCountdown, 1000);
             });
 
             async function loadChart() {
