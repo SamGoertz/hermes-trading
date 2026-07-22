@@ -264,11 +264,18 @@ def scanner():
                         <option value="1d">1 Day</option>
                     </select>
                     <select id="period" style="padding: 8px 12px; background: #222; border: 1px solid #444; color: #e0e0e0; border-radius: 4px;">
-                        <option value="1d">1 Day</option>
                         <option value="5d" selected>5 Days</option>
                         <option value="1mo">1 Month</option>
                         <option value="3mo">3 Months</option>
                         <option value="1y">1 Year</option>
+                    </select>
+
+                    <select id="zoom" style="padding: 8px 12px; background: #222; border: 1px solid #444; color: #e0e0e0; border-radius: 4px;">
+                        <option value="all" selected>Zoom: All</option>
+                        <option value="50">Last 50 Candles</option>
+                        <option value="30">Last 30 Candles</option>
+                        <option value="20">Last 20 Candles</option>
+                        <option value="10">Last 10 Candles</option>
                     </select>
                     <button onclick="loadChart()">Load Chart</button>
                 </div>
@@ -341,10 +348,12 @@ def scanner():
                 const savedSymbol = localStorage.getItem('scanner_symbol') || 'AAPL';
                 const savedInterval = localStorage.getItem('scanner_interval') || '5m';
                 const savedPeriod = localStorage.getItem('scanner_period') || '5d';
+                const savedZoom = localStorage.getItem('scanner_zoom') || 'all';
 
                 document.getElementById('symbol').value = savedSymbol;
                 document.getElementById('interval').value = savedInterval;
                 document.getElementById('period').value = savedPeriod;
+                document.getElementById('zoom').value = savedZoom;
 
                 loadChart();
             });
@@ -353,6 +362,7 @@ def scanner():
                 const symbol = document.getElementById('symbol').value.toUpperCase();
                 const interval = document.getElementById('interval').value;
                 const period = document.getElementById('period').value;
+                const zoomLevel = document.getElementById('zoom').value;
                 const errorDiv = document.getElementById('error');
                 errorDiv.style.display = 'none';
 
@@ -360,6 +370,7 @@ def scanner():
                 localStorage.setItem('scanner_symbol', symbol);
                 localStorage.setItem('scanner_interval', interval);
                 localStorage.setItem('scanner_period', period);
+                localStorage.setItem('scanner_zoom', zoomLevel);
 
                 try {
                     const response = await fetch(`/api/chart-data/${symbol}?interval=${interval}&period=${period}`);
@@ -426,9 +437,29 @@ def scanner():
                         document.getElementById('histStatus').textContent = '';
                     }
 
-                    drawCandleChart(candles, emaValues);
-                    drawRsiChart(rsiValues);
-                    drawMacdChart(macdLine, signalLine, histogram);
+                    // Apply zoom
+                    const zoomLevel = document.getElementById('zoom').value;
+                    let displayCandles = candles;
+                    let displayRsi = rsiValues;
+                    let displayEma = emaValues;
+                    let displayMacd = macdLine;
+                    let displaySignal = signalLine;
+                    let displayHist = histogram;
+
+                    if (zoomLevel !== 'all') {
+                        const zoomCount = parseInt(zoomLevel);
+                        const startIdx = Math.max(0, candles.length - zoomCount);
+                        displayCandles = candles.slice(startIdx);
+                        displayRsi = rsiValues.slice(Math.max(0, rsiValues.length - zoomCount));
+                        displayEma = emaValues.slice(Math.max(0, emaValues.length - zoomCount));
+                        displayMacd = macdLine.slice(Math.max(0, macdLine.length - zoomCount));
+                        displaySignal = signalLine.slice(Math.max(0, signalLine.length - zoomCount));
+                        displayHist = histogram.slice(Math.max(0, histogram.length - zoomCount));
+                    }
+
+                    drawCandleChart(displayCandles, displayEma);
+                    drawRsiChart(displayRsi);
+                    drawMacdChart(displayMacd, displaySignal, displayHist);
                 } catch (e) {
                     errorDiv.textContent = '❌ ' + e.message;
                     errorDiv.style.display = 'block';
