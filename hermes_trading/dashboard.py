@@ -367,6 +367,33 @@ def scanner():
             const RSI_OVERBOUGHT = 70;
             const RSI_OVERSOLD = 30;
 
+            // Convert UTC time to Central Time
+            function convertToCentralTime(isoTime) {
+                try {
+                    // Parse ISO time string
+                    const date = new Date(isoTime);
+                    // Convert to Central Time (CT)
+                    const ctTime = new Date(date.toLocaleString('en-US', { timeZone: 'America/Chicago' }));
+
+                    // Format: HH:MM or MM/DD HH:MM based on time
+                    const hours = String(ctTime.getHours()).padStart(2, '0');
+                    const minutes = String(ctTime.getMinutes()).padStart(2, '0');
+                    const month = String(ctTime.getMonth() + 1).padStart(2, '0');
+                    const day = String(ctTime.getDate()).padStart(2, '0');
+
+                    // Return format based on whether it includes date or not
+                    if (isoTime.includes('T')) {
+                        // Has time component - return HH:MM CT
+                        return `${hours}:${minutes} CT`;
+                    } else {
+                        // Date only - return MM/DD CT
+                        return `${month}/${day} CT`;
+                    }
+                } catch (e) {
+                    return isoTime; // Fallback to original if parsing fails
+                }
+            }
+
             // Load trading status on page load
             async function loadTradingStatus() {
                 try {
@@ -621,13 +648,14 @@ Or click Cancel to keep trading stopped.`;
                     ctx.fillText((high - (range / 5) * i).toFixed(2), PADDING - 10, y + 4);
                 }
 
-                // X-axis time labels
+                // X-axis time labels (convert to Central Time)
                 ctx.fillStyle = '#666';
                 ctx.textAlign = 'center';
                 const labelInterval = Math.max(1, Math.floor(candles.length / 8));
                 for (let i = 0; i < candles.length; i += labelInterval) {
                     const x = PADDING + spacing * i + spacing / 2;
-                    ctx.fillText(candles[i].time, x, canvas.height - 10);
+                    const timeStr = convertToCentralTime(candles[i].full_time || candles[i].time);
+                    ctx.fillText(timeStr, x, canvas.height - 10);
                 }
 
                 // Draw candles
@@ -699,9 +727,10 @@ Or click Cancel to keep trading stopped.`;
                     // Vertical line
                     crosshairs.children[1].style.left = (mouseX - canvasRect.left) + 'px';
 
-                    // Tooltip
+                    // Tooltip (with Central Time)
                     const tooltip = document.getElementById('tooltipPrice');
-                    tooltip.textContent = `$${price.toFixed(2)} | ${nearestCandle.time}`;
+                    const ctTime = convertToCentralTime(nearestCandle.full_time || nearestCandle.time);
+                    tooltip.textContent = `$${price.toFixed(2)} | ${ctTime}`;
                     tooltip.style.left = (mouseX - canvasRect.left + 10) + 'px';
                     tooltip.style.top = (mouseY - canvasRect.top - 30) + 'px';
                 });
@@ -763,13 +792,14 @@ Or click Cancel to keep trading stopped.`;
                     ctx.fillRect(x - barWidth / 2, barY, barWidth, barHeight);
                 });
 
-                // X-axis time labels (sparse)
+                // X-axis time labels (sparse, convert to Central Time)
                 ctx.fillStyle = '#666';
                 ctx.textAlign = 'center';
                 const labelInterval = Math.max(1, Math.floor(candles.length / 8));
                 for (let i = 0; i < candles.length; i += labelInterval) {
                     const x = PADDING + spacing * i + spacing / 2;
-                    ctx.fillText(candles[i].time, x, canvas.height - 10);
+                    const ctTime = convertToCentralTime(candles[i].full_time || candles[i].time);
+                    ctx.fillText(ctTime, x, canvas.height - 10);
                 }
             }
 
