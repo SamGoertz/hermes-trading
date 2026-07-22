@@ -278,7 +278,14 @@ def scanner():
 
             <div class="chart-panel">
                 <div class="chart-title" id="candleTitle">Candlestick + EMA(9)</div>
-                <canvas id="candleChart" width="1000" height="400"></canvas>
+                <div style="position: relative;">
+                    <canvas id="candleChart" width="1000" height="400"></canvas>
+                    <div id="crosshairs" style="position: absolute; display: none; pointer-events: none;">
+                        <div style="position: absolute; width: 100%; height: 1px; background: #3b82f6; opacity: 0.5;"></div>
+                        <div style="position: absolute; width: 1px; height: 100%; background: #3b82f6; opacity: 0.5;"></div>
+                        <div id="tooltipPrice" style="position: absolute; background: #1a1a1a; border: 1px solid #3b82f6; color: #fff; padding: 4px 8px; font-size: 12px; border-radius: 4px; white-space: nowrap;"></div>
+                    </div>
+                </div>
             </div>
 
             <div class="chart-panel">
@@ -404,9 +411,15 @@ def scanner():
                 const chartHeight = canvas.height - PADDING * 2;
                 const spacing = chartWidth / candles.length;
 
+                // Store chart metadata for crosshairs
+                window.chartMetadata = {
+                    candles, prices, high, low, range, PADDING, chartWidth, chartHeight, spacing, canvas
+                };
+
                 ctx.fillStyle = '#121212';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+                // Y-axis price labels
                 ctx.strokeStyle = '#222';
                 for (let i = 0; i <= 5; i++) {
                     const y = PADDING + (chartHeight / 5) * i;
@@ -421,6 +434,16 @@ def scanner():
                     ctx.fillText((high - (range / 5) * i).toFixed(2), PADDING - 10, y + 4);
                 }
 
+                // X-axis time labels
+                ctx.fillStyle = '#666';
+                ctx.textAlign = 'center';
+                const labelInterval = Math.max(1, Math.floor(candles.length / 8));
+                for (let i = 0; i < candles.length; i += labelInterval) {
+                    const x = PADDING + spacing * i + spacing / 2;
+                    ctx.fillText(candles[i].time, x, canvas.height - 10);
+                }
+
+                // Draw candles
                 candles.forEach((candle, i) => {
                     const x = PADDING + spacing * i + spacing / 2;
                     const candleWidth = Math.max(2, spacing * 0.6);
@@ -442,6 +465,7 @@ def scanner():
                     ctx.fillRect(x - candleWidth / 2, Math.min(oY, cY), candleWidth, Math.abs(cY - oY) || 1);
                 });
 
+                // Draw EMA
                 ctx.strokeStyle = '#f59e0b';
                 ctx.lineWidth = 2;
                 ctx.beginPath();
@@ -454,6 +478,50 @@ def scanner():
                     else ctx.lineTo(x, y);
                 }
                 ctx.stroke();
+
+                // Add mouse tracking for crosshairs
+                const canvasContainer = canvas.parentElement;
+                canvas.addEventListener('mousemove', (e) => {
+                    const canvasRect = canvas.getBoundingClientRect();
+                    const mouseX = e.clientX - canvasRect.left;
+                    const mouseY = e.clientY - canvasRect.top;
+
+                    if (mouseX < PADDING || mouseX > canvas.width - PADDING ||
+                        mouseY < PADDING || mouseY > canvas.height - PADDING) {
+                        document.getElementById('crosshairs').style.display = 'none';
+                        return;
+                    }
+
+                    // Calculate price from Y
+                    const normalizedY = (mouseY - PADDING) / chartHeight;
+                    const price = high - (normalizedY * range);
+
+                    // Find nearest candle from X
+                    const candleIndex = Math.round((mouseX - PADDING - spacing / 2) / spacing);
+                    const nearestCandle = candles[Math.max(0, Math.min(candles.length - 1, candleIndex))];
+
+                    const crosshairs = document.getElementById('crosshairs');
+                    crosshairs.style.display = 'block';
+                    crosshairs.style.left = canvasRect.left + 'px';
+                    crosshairs.style.top = canvasRect.top + 'px';
+                    crosshairs.style.width = canvasRect.width + 'px';
+                    crosshairs.style.height = canvasRect.height + 'px';
+
+                    // Horizontal line
+                    crosshairs.children[0].style.top = (mouseY - canvasRect.top) + 'px';
+                    // Vertical line
+                    crosshairs.children[1].style.left = (mouseX - canvasRect.left) + 'px';
+
+                    // Tooltip
+                    const tooltip = document.getElementById('tooltipPrice');
+                    tooltip.textContent = `$${price.toFixed(2)} | ${nearestCandle.time}`;
+                    tooltip.style.left = (mouseX - canvasRect.left + 10) + 'px';
+                    tooltip.style.top = (mouseY - canvasRect.top - 30) + 'px';
+                });
+
+                canvas.addEventListener('mouseleave', () => {
+                    document.getElementById('crosshairs').style.display = 'none';
+                });
             }
 
             function drawRsiChart(rsiValues) {
@@ -978,7 +1046,12 @@ def chart_data(symbol):
         period = request.args.get("period", "5d")
 
         ticker = yf.Ticker(symbol)
-        hist = ticker.history(period=period, interval=interval)
+
+        # For daily charts, use period without interval to get cleaner data
+        if interval == "1d":
+            hist = ticker.history(period="1y")  # Get 1 year of daily data
+        else:
+            hist = ticker.history(period=period, interval=interval)
 
         if hist.empty:
             return jsonify({"error": f"No data for {symbol}"})
@@ -987,9 +1060,16 @@ def chart_data(symbol):
         candles = []
 
         for idx, row in hist.iterrows():
-            time_format = "%H:%M" if interval in ["1m", "5m", "15m", "30m", "1h"] else "%Y-%m-%d"
+            if interval == "1d":
+                time_format = "%m/%d"
+            elif interval == "1h":
+                time_format = "%m/%d %H:%M"
+            else:
+                time_format = "%H:%M"
+
             candles.append({
                 "time": idx.strftime(time_format),
+                "full_time": idx.isoformat(),  # Store full ISO time for crosshairs
                 "open": float(row['Open']),
                 "high": float(row['High']),
                 "low": float(row['Low']),
