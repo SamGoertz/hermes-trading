@@ -206,6 +206,52 @@ class TradingLoop:
         loss_pct = ((entry_price - current_price) / entry_price) * 100
         return loss_pct >= stop_loss_pct
 
+    def _calculate_stop_price(self, entry_price: float, current_price: float,
+                             trailing_type: str, trailing_value: float,
+                             hard_stop_pct: float) -> float:
+        """Calculate stop price based on hybrid config.
+
+        Hard stop is absolute floor. Trailing adjusts as price rises.
+        Returns the most conservative stop price (highest value = hardest to breach).
+        """
+        # Hard stop is absolute floor
+        hard_stop_price = entry_price * (1 - hard_stop_pct / 100)
+
+        if trailing_type == "none":
+            return hard_stop_price
+
+        elif trailing_type == "percent":
+            # Trailing percent: stop = current * (1 - trailing%)
+            trailing_stop = current_price * (1 - trailing_value / 100)
+            return max(hard_stop_price, trailing_stop)
+
+        elif trailing_type == "dollar":
+            # Trailing dollar: stop = current - trailing_$
+            trailing_stop = current_price - trailing_value
+            return max(hard_stop_price, trailing_stop)
+
+        return hard_stop_price
+
+    def _check_stop_loss_hybrid(self, entry_price: float, current_price: float,
+                               strategy: dict) -> bool:
+        """Check if position should exit based on hybrid stop loss config.
+
+        Returns True if current_price <= calculated_stop_price.
+        """
+        stop_config = strategy.get("stop_loss", {})
+        hard_stop = stop_config.get("hard_stop_pct", 4.0)
+        trailing = stop_config.get("trailing", {})
+
+        stop_price = self._calculate_stop_price(
+            entry_price,
+            current_price,
+            trailing.get("type", "none"),
+            trailing.get("value", 0),
+            hard_stop
+        )
+
+        return current_price <= stop_price
+
     async def _check_early_exit(self, strategy: dict, prices: list, ema_values: list) -> bool:
         """Early exit if price closes below 9 EMA"""
         early_exit_config = strategy.get("early_exit", {})
@@ -326,11 +372,11 @@ class TradingLoop:
         for open_trade in open_trades:
             exit_reason = None
 
-            # Check hard stop loss first
-            should_stop_loss = self._check_hard_stop_loss(
+            # Check hybrid stop loss first (hard stop + optional trailing)
+            should_stop_loss = self._check_stop_loss_hybrid(
                 open_trade["entry_price"],
                 price,
-                open_trade.get("stop_loss_pct", 4.0)
+                strategy
             )
             if should_stop_loss:
                 exit_reason = "hard_stop_loss"

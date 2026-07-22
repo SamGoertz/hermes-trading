@@ -1117,6 +1117,23 @@ def dashboard():
                         <span class="label">Max Drawdown (%):</span>
                         <input type="number" id="maxDD" value="{goal.get("max_drawdown", 0)*100:.1f}" step="0.5" min="0" style="width: 100px; padding: 4px;">
                     </div>
+                    <div class="row" style="margin-top: 20px; border-top: 1px solid #444; padding-top: 15px;">
+                        <span class="label">Stop Loss Type:</span>
+                        <select id="stopType" style="width: 120px; padding: 4px;">
+                            <option value="percent">Percent (Trailing %)</option>
+                            <option value="dollar">Dollar (Trailing $)</option>
+                            <option value="none">None</option>
+                        </select>
+                    </div>
+                    <div class="row">
+                        <span class="label">Hard Stop (%):</span>
+                        <input type="number" id="hardStop" value="{goal.get('stop_loss', {}).get('hard_stop_pct', 4.0)}" step="0.5" min="1" max="10" style="width: 80px; padding: 4px;">
+                    </div>
+                    <div class="row">
+                        <span class="label">Trailing Value:</span>
+                        <input type="number" id="trailingValue" value="{goal.get('stop_loss', {}).get('trailing', {}).get('value', 5.0)}" step="0.5" min="0" style="width: 80px; padding: 4px;">
+                        <span id="trailingUnit" style="margin-left: 10px; color: #888;" data-unit="{goal.get('stop_loss', {}).get('trailing', {}).get('type', 'percent')}">%</span>
+                    </div>
                     <div class="row" style="margin-top: 15px;">
                         <button type="submit" style="padding: 8px 16px; background: #22c55e; color: #000; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Save All Settings</button>
                     </div>
@@ -1195,6 +1212,9 @@ Or click Cancel to keep trading stopped.`;
                     max_daily_loss_usd: document.getElementById('maxLoss').value,
                     target_return_30d: document.getElementById('targetRtn').value,
                     max_drawdown: document.getElementById('maxDD').value,
+                    stop_loss_type: document.getElementById('stopType').value,
+                    hard_stop_pct: parseFloat(document.getElementById('hardStop').value),
+                    trailing_value: parseFloat(document.getElementById('trailingValue').value),
                 }};
 
                 fetch('/api/update-limits', {{
@@ -1210,6 +1230,22 @@ Or click Cancel to keep trading stopped.`;
                     document.getElementById('saveStatus').innerText = 'Error: ' + e;
                   }});
             }}
+
+            // Initialize stop loss type from stored value
+            window.addEventListener('load', function() {{
+                const stopTypeSelect = document.getElementById('stopType');
+                const trailingTypeElement = document.getElementById('trailingUnit');
+                const storedType = trailingTypeElement.getAttribute('data-unit') || 'percent';
+                stopTypeSelect.value = storedType;
+                const unit = storedType === 'dollar' ? '$' : '%';
+                trailingTypeElement.textContent = unit;
+            }});
+
+            // Handle stop loss type change
+            document.getElementById('stopType').addEventListener('change', function() {{
+                const unit = this.value === 'dollar' ? '$' : '%';
+                document.getElementById('trailingUnit').textContent = unit;
+            }});
 
             // Auto-refresh every 30 seconds
             setTimeout(() => location.reload(), 30000);
@@ -1234,7 +1270,7 @@ def toggle_trading():
 
 @app.route("/api/update-limits", methods=["POST"])
 def update_limits():
-    """Update risk limits and asset"""
+    """Update risk limits, asset, and stop loss configuration"""
     from flask import request
     data = request.get_json()
     goal = load_yaml(STATE_DIR / "goal.yaml")
@@ -1249,6 +1285,18 @@ def update_limits():
         goal["target_return_30d"] = float(data["target_return_30d"]) / 100.0
     if "max_drawdown" in data:
         goal["max_drawdown"] = float(data["max_drawdown"]) / 100.0
+
+    # Handle stop loss configuration with hybrid mode
+    if "stop_loss_type" in data:
+        goal["stop_loss"] = {
+            "type": "hybrid",
+            "hard_stop_pct": float(data.get("hard_stop_pct", 4.0)),
+            "trailing": {
+                "type": data["stop_loss_type"],  # "percent", "dollar", or "none"
+                "value": float(data.get("trailing_value", 5.0))
+            },
+            "version": "v1"
+        }
 
     with open(STATE_DIR / "goal.yaml", "w") as f:
         yaml.dump(goal, f, default_flow_style=False)

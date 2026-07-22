@@ -6,8 +6,13 @@ entry:
   divergence_type: "higher_rsi_lower_price"
   ema_confirmation: 9
 position_size_r: 0.5
-stop_loss_pct: 4.0
-stop_loss_type: "hard_stop"
+stop_loss:
+  type: "hybrid"
+  hard_stop_pct: 4.0
+  trailing:
+    type: "percent"
+    value: 5.0
+  version: "v1"
 version: '02b'
 volume_min_shares: 500000
 price_min: 2.0
