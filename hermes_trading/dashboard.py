@@ -6,11 +6,14 @@ import json
 from pathlib import Path
 from datetime import datetime, timedelta
 import logging
+from dotenv import load_dotenv
 
 from flask import Flask, jsonify, request
 import yaml
 import yfinance as yf
 import numpy as np
+
+load_dotenv()
 
 try:
     from alpaca.data.historical import StockHistoricalDataClient
@@ -2027,7 +2030,12 @@ def is_cache_valid():
 def get_alpaca_client():
     """Get Alpaca historical data client (uses APCA_API_KEY_ID and APCA_API_SECRET_KEY env vars)."""
     try:
-        return StockHistoricalDataClient()
+        import os
+        api_key = os.getenv("APCA_API_KEY_ID")
+        api_secret = os.getenv("APCA_API_SECRET_KEY")
+        if not api_key or not api_secret:
+            raise ValueError("Missing APCA_API_KEY_ID or APCA_API_SECRET_KEY")
+        return StockHistoricalDataClient(api_key=api_key, secret_key=api_secret)
     except Exception as e:
         logging.warning(f"Failed to initialize Alpaca client: {e}")
         return None
@@ -2107,8 +2115,8 @@ def autoscan():
     Filters:
     - Price: $2-20
     - Volume: >= 500k shares (latest bar)
-    - RVol: > 2.5x (current volume / SMA(volume, 20))
-    - RSI(14): < 35 (Wilder's smoothing)
+    - RVol: > 2.0x (current volume / SMA(volume, 20))
+    - RSI(14): < 45 (Wilder's smoothing)
 
     Returns: Top results sorted by RSI ascending (most oversold first)
     Cache TTL: 1 hour
@@ -2242,18 +2250,18 @@ def autoscan():
                     continue
 
                 rvol = current_volume / sma_vol
-                if rvol <= 2.5:
+                if rvol <= 2.0:
                     continue
 
-                # Filter 4: RSI(14) < 35 (Wilder's smoothing via calculate_rsi)
+                # Filter 4: RSI(14) < 45 (Wilder's smoothing via calculate_rsi)
                 rsi_values = calculate_rsi(closes, period=14)
 
                 if not rsi_values or len(rsi_values) < 3:
                     continue
 
-                # Check if RSI < 35 in last 3 bars
+                # Check if RSI < 45 in last 3 bars
                 last_3_rsi = rsi_values[-3:]
-                if not any(rsi < 35 for rsi in last_3_rsi):
+                if not any(rsi < 45 for rsi in last_3_rsi):
                     continue
 
                 current_rsi = rsi_values[-1]
