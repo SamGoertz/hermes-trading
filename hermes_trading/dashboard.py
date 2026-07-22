@@ -289,7 +289,7 @@ def scanner():
                 border-radius: 4px;
                 padding: 15px;
                 display: none;
-                max-height: 400px;
+                max-height: 500px;
                 overflow-y: auto;
             }
             #autoscanResults.visible {
@@ -309,24 +309,142 @@ def scanner():
             .result-item {
                 background: #1a1a1a;
                 border-left: 3px solid #22c55e;
-                padding: 10px 12px;
+                padding: 12px;
                 border-radius: 4px;
                 font-size: 13px;
-                cursor: pointer;
                 transition: background 0.2s;
+                display: flex;
+                align-items: flex-start;
+                gap: 10px;
             }
             .result-item:hover {
                 background: #222;
+            }
+            .result-item input[type="checkbox"] {
+                margin-top: 2px;
+                cursor: pointer;
+                width: 18px;
+                height: 18px;
+            }
+            .result-content {
+                flex: 1;
+                cursor: pointer;
             }
             .result-symbol {
                 font-weight: bold;
                 color: #22c55e;
                 margin-right: 8px;
+                display: inline;
             }
             .result-details {
                 color: #aaa;
                 font-size: 12px;
                 margin-top: 4px;
+            }
+            .selected-watchlist-panel {
+                background: #1a3a1a;
+                border: 1px solid #2a7d3f;
+                border-radius: 4px;
+                padding: 15px;
+                margin-top: 15px;
+                margin-bottom: 15px;
+            }
+            .selected-watchlist-panel h3 {
+                font-size: 14px;
+                color: #22c55e;
+                margin-bottom: 10px;
+                font-weight: bold;
+                text-transform: uppercase;
+            }
+            .selected-symbols {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+                margin-bottom: 10px;
+                min-height: 30px;
+                align-items: center;
+            }
+            .symbol-pill {
+                background: #22c55e;
+                color: #000;
+                padding: 6px 10px;
+                border-radius: 16px;
+                font-size: 12px;
+                font-weight: bold;
+                display: flex;
+                align-items: center;
+                gap: 6px;
+            }
+            .symbol-pill button {
+                background: none;
+                border: none;
+                color: #000;
+                cursor: pointer;
+                font-weight: bold;
+                padding: 0;
+                font-size: 16px;
+                line-height: 1;
+            }
+            .selected-count {
+                font-size: 12px;
+                color: #888;
+                margin-bottom: 10px;
+                min-height: 16px;
+            }
+            .watchlist-actions {
+                display: flex;
+                gap: 10px;
+            }
+            .watchlist-actions button {
+                padding: 8px 14px;
+                background: #22c55e;
+                color: #000;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            .watchlist-actions button:hover {
+                background: #16a34a;
+            }
+            .watchlist-actions button.secondary {
+                background: #666;
+                color: #fff;
+            }
+            .watchlist-actions button.secondary:hover {
+                background: #777;
+            }
+            .paper-trading-watchlist {
+                background: #1a2d1a;
+                border: 1px solid #2a5d2a;
+                border-radius: 4px;
+                padding: 15px;
+                margin-top: 15px;
+            }
+            .paper-trading-watchlist h3 {
+                font-size: 14px;
+                color: #22c55e;
+                margin-bottom: 10px;
+                font-weight: bold;
+                text-transform: uppercase;
+            }
+            .watchlist-stocks {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 15px;
+                margin-bottom: 10px;
+                font-size: 12px;
+                color: #888;
+            }
+            .watchlist-stocks span {
+                display: inline;
+            }
+            .watchlist-empty {
+                color: #666;
+                font-size: 12px;
+                font-style: italic;
+                padding: 10px 0;
             }
         </style>
     </head>
@@ -371,6 +489,26 @@ def scanner():
                         Found <span id="resultCount">0</span> matching signals
                     </div>
                     <div id="resultsList"></div>
+                    <div class="selected-watchlist-panel" id="selectedWatchlistPanel" style="display: none;">
+                        <h3>📌 Selected Watchlist</h3>
+                        <div class="selected-symbols" id="selectedSymbolsContainer"></div>
+                        <div class="selected-count" id="selectedCountText"></div>
+                        <div class="watchlist-actions">
+                            <button onclick="addSelectedToWatchlist()">Add Selected to Watchlist</button>
+                            <button class="secondary" onclick="clearAllSelections()">Clear All</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="paper-trading-watchlist" id="paperTradingWatchlist" style="display: none;">
+                <h3>📊 Paper Trading Watchlist</h3>
+                <div id="watchlistContent">
+                    <div class="watchlist-empty">No stocks in watchlist yet</div>
+                </div>
+                <div class="watchlist-actions">
+                    <button class="secondary" onclick="clearWatchlist()">Clear Watchlist</button>
+                    <button onclick="loadNextWatchlistStock()">Load Next in Scanner</button>
                 </div>
             </div>
 
@@ -487,6 +625,147 @@ def scanner():
         <script>
             const RSI_OVERBOUGHT = 70;
             const RSI_OVERSOLD = 30;
+            const MAX_DISPLAY_RESULTS = 15;
+            const WATCHLIST_STORAGE_KEY = 'autoscan_watchlist';
+            const SELECTED_STORAGE_KEY = 'autoscan_selected';
+
+            // Load watchlist from localStorage on page load
+            window.addEventListener('load', () => {
+                loadWatchlistFromStorage();
+                loadTradingStatus();
+                updateMarketCountdown();
+                loadChart();
+                setInterval(updateMarketCountdown, 1000);
+            });
+
+            // Watchlist management functions
+            function loadWatchlistFromStorage() {
+                const watchlist = JSON.parse(localStorage.getItem(WATCHLIST_STORAGE_KEY) || '[]');
+                const selected = JSON.parse(localStorage.getItem(SELECTED_STORAGE_KEY) || '[]');
+
+                // Update checkboxes if results are visible
+                document.querySelectorAll('.result-item input[type="checkbox"]').forEach(checkbox => {
+                    checkbox.checked = selected.includes(checkbox.dataset.symbol);
+                });
+
+                updateWatchlistDisplay(watchlist);
+            }
+
+            function selectStock(symbol, checked) {
+                let selected = JSON.parse(localStorage.getItem(SELECTED_STORAGE_KEY) || '[]');
+                if (checked) {
+                    if (!selected.includes(symbol)) {
+                        selected.push(symbol);
+                    }
+                } else {
+                    selected = selected.filter(s => s !== symbol);
+                }
+                localStorage.setItem(SELECTED_STORAGE_KEY, JSON.stringify(selected));
+                updateSelectedWatchlistDisplay();
+            }
+
+            function updateSelectedWatchlistDisplay() {
+                const selected = JSON.parse(localStorage.getItem(SELECTED_STORAGE_KEY) || '[]');
+                const container = document.getElementById('selectedSymbolsContainer');
+                const countText = document.getElementById('selectedCountText');
+                const panel = document.getElementById('selectedWatchlistPanel');
+
+                container.innerHTML = '';
+                if (selected.length > 0) {
+                    selected.forEach(symbol => {
+                        const pill = document.createElement('div');
+                        pill.className = 'symbol-pill';
+                        pill.innerHTML = `
+                            ${symbol}
+                            <button onclick="deselectStock('${symbol}')" title="Remove">×</button>
+                        `;
+                        container.appendChild(pill);
+                    });
+                    countText.textContent = `(${selected.length} selected for testing)`;
+                    panel.style.display = 'block';
+                } else {
+                    panel.style.display = 'none';
+                }
+            }
+
+            function deselectStock(symbol) {
+                let selected = JSON.parse(localStorage.getItem(SELECTED_STORAGE_KEY) || '[]');
+                selected = selected.filter(s => s !== symbol);
+                localStorage.setItem(SELECTED_STORAGE_KEY, JSON.stringify(selected));
+
+                // Uncheck the corresponding checkbox
+                const checkbox = document.querySelector(`input[data-symbol="${symbol}"]`);
+                if (checkbox) checkbox.checked = false;
+
+                updateSelectedWatchlistDisplay();
+            }
+
+            function clearAllSelections() {
+                localStorage.setItem(SELECTED_STORAGE_KEY, JSON.stringify([]));
+                document.querySelectorAll('.result-item input[type="checkbox"]').forEach(cb => cb.checked = false);
+                updateSelectedWatchlistDisplay();
+            }
+
+            function addSelectedToWatchlist() {
+                const selected = JSON.parse(localStorage.getItem(SELECTED_STORAGE_KEY) || '[]');
+                let watchlist = JSON.parse(localStorage.getItem(WATCHLIST_STORAGE_KEY) || '[]');
+
+                // Merge selected into watchlist (avoid duplicates)
+                watchlist = [...new Set([...watchlist, ...selected])];
+                localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify(watchlist));
+
+                // Clear selections
+                clearAllSelections();
+                updateWatchlistDisplay(watchlist);
+                alert(`Added ${selected.length} stock(s) to watchlist!`);
+            }
+
+            function updateWatchlistDisplay(watchlist) {
+                const panel = document.getElementById('paperTradingWatchlist');
+                const content = document.getElementById('watchlistContent');
+
+                if (!watchlist || watchlist.length === 0) {
+                    content.innerHTML = '<div class="watchlist-empty">No stocks in watchlist yet</div>';
+                    panel.style.display = 'none';
+                    return;
+                }
+
+                panel.style.display = 'block';
+                content.innerHTML = `
+                    <div class="watchlist-stocks">
+                        ${watchlist.map(symbol => `
+                            <span title="Click to load in scanner" onclick="loadStockChart('${symbol}')" style="cursor: pointer; color: #22c55e; font-weight: bold;">
+                                ${symbol} ×
+                            </span>
+                        `).join('')}
+                    </div>
+                    <div class="watchlist-empty" style="margin-top: 8px; color: #888; font-size: 11px;">
+                        (${watchlist.length} stock${watchlist.length !== 1 ? 's' : ''} in watchlist - click symbol to load)
+                    </div>
+                `;
+            }
+
+            function clearWatchlist() {
+                if (confirm('Clear all stocks from watchlist?')) {
+                    localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify([]));
+                    updateWatchlistDisplay([]);
+                }
+            }
+
+            function loadNextWatchlistStock() {
+                const watchlist = JSON.parse(localStorage.getItem(WATCHLIST_STORAGE_KEY) || '[]');
+                if (watchlist.length === 0) {
+                    alert('Watchlist is empty');
+                    return;
+                }
+
+                // Get current symbol in scanner
+                const currentSymbol = document.getElementById('symbol').value.toUpperCase();
+                const currentIndex = watchlist.indexOf(currentSymbol);
+                const nextIndex = (currentIndex + 1) % watchlist.length;
+
+                loadStockChart(watchlist[nextIndex]);
+            }
 
             // Convert UTC time to Central Time
             function convertToCentralTime(isoTime) {
@@ -647,7 +926,7 @@ Or click Cancel to keep trading stopped.`;
             }
 
             // Load persisted values on page load
-            window.addEventListener('load', () => {
+            window.addEventListener('DOMContentLoaded', () => {
                 const savedSymbol = localStorage.getItem('scanner_symbol') || 'AAPL';
                 const savedInterval = localStorage.getItem('scanner_interval') || '5m';
                 const savedPeriod = localStorage.getItem('scanner_period') || '5d';
@@ -657,13 +936,6 @@ Or click Cancel to keep trading stopped.`;
                 document.getElementById('interval').value = savedInterval;
                 document.getElementById('period').value = savedPeriod;
                 document.getElementById('zoom').value = savedZoom;
-
-                loadTradingStatus();
-                updateMarketCountdown();
-                loadChart();
-
-                // Update countdown every second
-                setInterval(updateMarketCountdown, 1000);
             });
 
             async function loadChart() {
@@ -1090,63 +1362,91 @@ Or click Cancel to keep trading stopped.`;
 
             async function startAutoscan() {
                 const autoscanBtn = document.getElementById('autoscanBtn');
+                const autoscanStatus = document.getElementById('autoscanStatus');
+                const autoscanResults = document.getElementById('autoscanResults');
                 const resultsList = document.getElementById('resultsList');
-                const scanStatus = document.getElementById('scanStatus');
-                const scanResults = document.getElementById('scanResults');
+                const resultCount = document.getElementById('resultCount');
 
                 // Disable button and show status
                 autoscanBtn.disabled = true;
                 autoscanBtn.style.background = '#888';
-                scanStatus.textContent = 'Scanning market...';
-                resultsList.style.display = 'block';
-                scanResults.innerHTML = '';
+                autoscanStatus.textContent = 'Scanning market...';
+                autoscanStatus.className = 'scanning';
+                autoscanResults.classList.add('visible');
+                resultsList.innerHTML = '';
 
                 try {
                     const response = await fetch('/api/autoscan');
                     const data = await response.json();
 
                     if (data.error) {
-                        scanStatus.textContent = 'Error: ' + data.error;
+                        autoscanStatus.textContent = 'Error: ' + data.error;
+                        autoscanStatus.className = 'error';
                         return;
                     }
 
-                    const results = data.results || [];
-                    const count = data.count || 0;
+                    let results = data.results || [];
+                    const totalCount = results.length;
+                    const scanned = data.scanned || 0;
 
-                    // Update status with result count
-                    scanStatus.textContent = `Found ${count} result(s) from ${data.scanned} stocks scanned`;
+                    // Limit to top 10-15 results
+                    const displayedCount = Math.min(MAX_DISPLAY_RESULTS, results.length);
+                    const displayResults = results.slice(0, displayedCount);
 
-                    // Display results
-                    if (results.length === 0) {
-                        scanResults.innerHTML = '<div style="color: #666; padding: 20px; text-align: center;">No results matching criteria</div>';
+                    // Update result count display
+                    if (totalCount > displayedCount) {
+                        resultCount.textContent = `${displayedCount} of ${totalCount}`;
+                        autoscanStatus.textContent = `Scan complete: Top ${displayedCount} of ${totalCount} matches found (${scanned} stocks scanned)`;
                     } else {
-                        results.forEach(result => {
-                            const resultCard = document.createElement('div');
-                            resultCard.style.cssText = 'background: #222; border: 1px solid #444; padding: 12px; border-radius: 4px; cursor: pointer; transition: all 0.2s;';
-                            resultCard.onmouseover = () => resultCard.style.background = '#2a2a2a';
-                            resultCard.onmouseout = () => resultCard.style.background = '#222';
-                            resultCard.onclick = () => loadStockChart(result.symbol);
+                        resultCount.textContent = totalCount;
+                        autoscanStatus.textContent = `Scan complete: Found ${totalCount} match(es) (${scanned} stocks scanned)`;
+                    }
+                    autoscanStatus.className = '';
+
+                    // Get current selected list from localStorage
+                    const selected = JSON.parse(localStorage.getItem(SELECTED_STORAGE_KEY) || '[]');
+
+                    // Display results with checkboxes
+                    if (displayResults.length === 0) {
+                        resultsList.innerHTML = '<div style="color: #666; padding: 20px; text-align: center;">No results matching criteria</div>';
+                    } else {
+                        displayResults.forEach(result => {
+                            const resultItem = document.createElement('div');
+                            resultItem.className = 'result-item';
+                            const isChecked = selected.includes(result.symbol);
 
                             const rsiColor = result.rsi < 30 ? '#ef4444' : result.rsi < 50 ? '#f59e0b' : '#22c55e';
 
-                            resultCard.innerHTML = `
-                                <div style="font-weight: bold; font-size: 16px; color: #22c55e; margin-bottom: 8px;">${result.symbol}</div>
-                                <div style="font-size: 12px; color: #888;">Price</div>
-                                <div style="font-size: 14px; color: #e0e0e0; margin-bottom: 8px;">$${result.price.toFixed(2)}</div>
-                                <div style="font-size: 12px; color: #888;">Volume</div>
-                                <div style="font-size: 13px; color: #e0e0e0; margin-bottom: 8px;">${result.volume.toLocaleString()}</div>
-                                <div style="font-size: 12px; color: #888;">RVol / RSI</div>
-                                <div style="font-size: 13px; color: #e0e0e0;"><span style="color: #3b82f6;">${result.rvol.toFixed(2)}x</span> / <span style="color: ${rsiColor};">${result.rsi.toFixed(1)}</span></div>
+                            resultItem.innerHTML = `
+                                <input type="checkbox" data-symbol="${result.symbol}"
+                                       ${isChecked ? 'checked' : ''}
+                                       onchange="selectStock('${result.symbol}', this.checked)">
+                                <div class="result-content" onclick="loadStockChart('${result.symbol}')">
+                                    <div>
+                                        <span class="result-symbol">${result.symbol}</span>
+                                        <span style="color: #aaa;">$${result.price.toFixed(2)}</span>
+                                        <span style="color: #888; font-size: 11px;">RVol: <span style="color: #3b82f6;">${result.rvol.toFixed(2)}x</span></span>
+                                        <span style="color: #888; font-size: 11px;">RSI: <span style="color: ${rsiColor};">${result.rsi.toFixed(1)}</span></span>
+                                    </div>
+                                    <div class="result-details">
+                                        Vol: ${result.volume.toLocaleString()} shares
+                                    </div>
+                                </div>
                             `;
 
-                            scanResults.appendChild(resultCard);
+                            resultsList.appendChild(resultItem);
                         });
+
+                        // Show selected watchlist panel
+                        updateSelectedWatchlistDisplay();
                     }
                 } catch (e) {
-                    scanStatus.textContent = 'Error: ' + e.message;
+                    autoscanStatus.textContent = 'Error: ' + e.message;
+                    autoscanStatus.className = 'error';
+                    console.error('Autoscan error:', e);
                 } finally {
                     autoscanBtn.disabled = false;
-                    autoscanBtn.style.background = '#3b82f6';
+                    autoscanBtn.style.background = '#22c55e';
                 }
             }
 
