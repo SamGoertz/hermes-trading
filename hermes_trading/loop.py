@@ -122,6 +122,16 @@ class TradingLoop:
         rs = avg_gain / avg_loss
         return 100.0 - (100.0 / (1.0 + rs))
 
+    def _compute_ema_9(self, prices: list) -> Optional[float]:
+        """Compute 9-period EMA from price list."""
+        if len(prices) < 9:
+            return None
+        ema_multiplier = 2.0 / (9 + 1)
+        ema = prices[0]
+        for price in prices[1:]:
+            ema = price * ema_multiplier + ema * (1 - ema_multiplier)
+        return ema
+
     def _detect_rsi_higher_low(self, rsi_values: list, lookback: int = 3) -> bool:
         """Check if RSI made a higher low in last N bars"""
         if len(rsi_values) < lookback + 1:
@@ -180,6 +190,67 @@ class TradingLoop:
             return True
         return False
 
+    def _check_ema_crossover(self, prices: list, ema_values: list, direction: str = "above") -> bool:
+        """Check if latest price closes above or below EMA"""
+        if not prices or not ema_values:
+            return False
+        latest_price = prices[-1]
+        latest_ema = ema_values[-1]
+        if direction == "above":
+            return latest_price > latest_ema
+        else:  # below
+            return latest_price < latest_ema
+
+    def _check_hard_stop_loss(self, entry_price: float, current_price: float, stop_loss_pct: float) -> bool:
+        """Check if position hit hard stop loss"""
+        loss_pct = ((entry_price - current_price) / entry_price) * 100
+        return loss_pct >= stop_loss_pct
+
+    async def _check_early_exit(self, strategy: dict, prices: list, ema_values: list) -> bool:
+        """Early exit if price closes below 9 EMA"""
+        early_exit_config = strategy.get("early_exit", {})
+        if not early_exit_config.get("enabled", False):
+            return False
+
+        if early_exit_config.get("trigger") == "closes_below_ema":
+            if len(prices) < 1 or len(ema_values) < 1:
+                return False
+            return self._check_ema_crossover(prices, ema_values, "below")
+        return False
+
+    async def _check_entry_divergence_with_ema(self, strategy: dict, price: float,
+                                                recent_prices: list, recent_rsi: list,
+                                                recent_ema: list, goal: dict) -> bool:
+        """Divergence + 9 EMA confirmation for Track B"""
+        if strategy["entry"]["direction"] != "long":
+            return False
+        if not goal.get("trading_enabled", True):
+            return False
+
+        if strategy["entry"]["indicator"] == "divergence_with_ema":
+            # Check RSI < 35 in last 3 bars
+            if len(recent_rsi) < 3:
+                return False
+            if not all(r < strategy["entry"]["threshold"] for r in recent_rsi[-3:]):
+                return False
+
+            # Check divergence
+            if not self._detect_divergence(recent_prices, recent_rsi, 3):
+                return False
+
+            # Check 9 EMA confirmation - price must close above 9 EMA
+            if len(recent_ema) < 1:
+                return False
+            if not self._check_ema_crossover(recent_prices, recent_ema, "above"):
+                return False
+
+            # Check volume/price filters
+            if not self._check_volume_filters(price):
+                return False
+
+            return True
+        return False
+
     async def _one_iteration(self):
         """Single loop iteration."""
         if self.circuit_broken:
@@ -206,24 +277,84 @@ class TradingLoop:
         recent_prices = [t.get("price") for t in trades[-30:] if "price" in t]
         recent_prices.append(price)
 
+        # Calculate 9 EMA from recent prices
+        recent_ema_9 = self._compute_ema_9(recent_prices)
+
+        # Calculate RSI values for divergence detection
+        if len(recent_prices) >= 14:
+            recent_rsi = []
+            # Compute RSI for multiple windows to detect divergence
+            for i in range(max(0, len(recent_prices) - 10), len(recent_prices)):
+                window = recent_prices[:i+1] if i >= 13 else recent_prices
+                if len(window) >= 14:
+                    recent_rsi.append(self._compute_rsi(window))
+            if not recent_rsi:
+                recent_rsi = [self._compute_rsi(recent_prices)]
+        else:
+            recent_rsi = []
+
         allowed, reason = await self._check_risk_limits(goal, trades)
         if not allowed:
             print(f"Trading halted: {reason}")
             await self._write_heartbeat("trading_halted", price)
             return
 
+        # Track A: Check RSI-based entry (original logic)
         entry_signal = await self._check_entry(strategy, price, recent_prices, goal)
+
+        # Track B: Check divergence + EMA-based entry
+        if not entry_signal and recent_ema_9 is not None and recent_rsi:
+            entry_signal = await self._check_entry_divergence_with_ema(
+                strategy, price, recent_prices, recent_rsi,
+                [recent_ema_9], goal
+            )
+
         if entry_signal:
             trade = {
                 "entry_price": price,
                 "entry_signal": strategy["entry"]["indicator"],
-                "stop_loss_pct": strategy["stop_loss_pct"],
-                "position_size_r": strategy["position_size_r"],
+                "stop_loss_pct": strategy.get("stop_loss_pct", 4.0),
+                "position_size_r": strategy.get("position_size_r", 1.0),
                 "status": "open",
                 "price": price,
             }
             await self._append_trade(trade)
             print(f"✓ Entry signal @ {price}")
+
+        # Handle open positions - early exit and hard stop loss checks
+        open_trades = [t for t in trades if t.get("status") == "open"]
+        for open_trade in open_trades:
+            exit_reason = None
+
+            # Check hard stop loss first
+            should_stop_loss = self._check_hard_stop_loss(
+                open_trade["entry_price"],
+                price,
+                open_trade.get("stop_loss_pct", 4.0)
+            )
+            if should_stop_loss:
+                exit_reason = "hard_stop_loss"
+                print(f"✗ Hard stop loss triggered @ {price}, entry was {open_trade['entry_price']}")
+
+            # Check early exit if no hard stop loss triggered
+            if not exit_reason and recent_ema_9 is not None:
+                should_early_exit = await self._check_early_exit(strategy, recent_prices, [recent_ema_9])
+                if should_early_exit:
+                    exit_reason = "closed_below_9ema"
+                    print(f"✗ Early exit triggered (closed below 9 EMA) @ {price}")
+
+            # Record exit if triggered
+            if exit_reason:
+                exit_trade = {
+                    "entry_price": open_trade["entry_price"],
+                    "exit_price": price,
+                    "exit_signal": exit_reason,
+                    "entry_signal": open_trade.get("entry_signal"),
+                    "status": "closed",
+                    "pnl": price - open_trade["entry_price"],
+                    "pnl_pct": ((price - open_trade["entry_price"]) / open_trade["entry_price"]) * 100,
+                }
+                await self._append_trade(exit_trade)
 
         await asyncio.sleep(60)
 

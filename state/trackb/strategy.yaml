@@ -4,9 +4,15 @@ entry:
   threshold: 35
   lookback_bars: 3
   divergence_type: "higher_rsi_lower_price"
+  ema_confirmation: 9
 position_size_r: 0.5
-stop_loss_pct: 2.0
-version: '01b'
+stop_loss_pct: 4.0
+stop_loss_type: "hard_stop"
+version: '02b'
 volume_min_shares: 500000
 price_min: 2.0
 price_max: 20.0
+early_exit:
+  enabled: true
+  trigger: "closes_below_ema"
+  ema_period: 9
