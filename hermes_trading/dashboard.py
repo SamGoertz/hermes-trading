@@ -336,12 +336,30 @@ def scanner():
             const RSI_OVERBOUGHT = 70;
             const RSI_OVERSOLD = 30;
 
+            // Load persisted values on page load
+            window.addEventListener('load', () => {
+                const savedSymbol = localStorage.getItem('scanner_symbol') || 'AAPL';
+                const savedInterval = localStorage.getItem('scanner_interval') || '5m';
+                const savedPeriod = localStorage.getItem('scanner_period') || '5d';
+
+                document.getElementById('symbol').value = savedSymbol;
+                document.getElementById('interval').value = savedInterval;
+                document.getElementById('period').value = savedPeriod;
+
+                loadChart();
+            });
+
             async function loadChart() {
                 const symbol = document.getElementById('symbol').value.toUpperCase();
                 const interval = document.getElementById('interval').value;
                 const period = document.getElementById('period').value;
                 const errorDiv = document.getElementById('error');
                 errorDiv.style.display = 'none';
+
+                // Persist selections to localStorage
+                localStorage.setItem('scanner_symbol', symbol);
+                localStorage.setItem('scanner_interval', interval);
+                localStorage.setItem('scanner_period', period);
 
                 try {
                     const response = await fetch(`/api/chart-data/${symbol}?interval=${interval}&period=${period}`);
@@ -626,8 +644,6 @@ def scanner():
                 });
                 ctx.stroke();
             }
-
-            window.addEventListener('load', loadChart);
         </script>
     </body>
     </html>
