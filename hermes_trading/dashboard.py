@@ -2108,7 +2108,6 @@ def chart_data(symbol):
         return jsonify({"error": f"Data error: {str(e)}"}), 400
 
 
-@app.route("/api/autoscan")
 def get_fallback_candidates():
     """Return comprehensive fallback list of liquid stocks for screening."""
     return [
@@ -2123,6 +2122,7 @@ def get_fallback_candidates():
         'EMTX', 'EOLS', 'EPAY', 'EPHY', 'EPIX', 'EPOW', 'EPRX', 'EPWR', 'EQIX', 'EQRX'
     ]
 
+@app.route("/api/autoscan")
 def autoscan():
     """
     Scan market for oversold opportunities using Alpaca movers endpoint + 1H bars.
@@ -2133,12 +2133,17 @@ def autoscan():
     - RVol: > 1.5x (current volume / SMA(volume, 20))
     - RSI(14): < 55 (Wilder's smoothing)
 
-    Returns: Top results sorted by RSI ascending (most oversold first)
-    Cache TTL: 1 hour
-    """
+    Query params:
+    - backtest=true: Fetch 100 bars instead of 30 (test recent history)
 
-    # Check cache first
-    if is_cache_valid():
+    Returns: Top results sorted by RSI ascending (most oversold first)
+    Cache TTL: 1 hour (disabled in backtest mode)
+    """
+    backtest_mode = request.args.get('backtest', 'false').lower() == 'true'
+    bar_limit = 100 if backtest_mode else 30
+
+    # Skip cache in backtest mode
+    if not backtest_mode and is_cache_valid():
         logging.info("Returning cached autoscan results")
         return jsonify({
             "results": autoscan_cache["results"],
@@ -2198,13 +2203,13 @@ def autoscan():
             try:
                 symbols_scanned.append(symbol)
 
-                # Fetch last 30 bars (1H timeframe) using Alpaca
+                # Fetch bars (1H timeframe) using Alpaca
                 if ALPACA_AVAILABLE and client:
                     try:
                         request_params = StockBarsRequest(
                             symbol_or_symbols=symbol,
                             timeframe=TimeFrame.Hour,
-                            limit=30
+                            limit=bar_limit
                         )
                         bars = client.get_stock_bars(request_params)
 
@@ -2304,12 +2309,14 @@ def autoscan():
         # Sort results by RSI (lowest first = most oversold)
         results.sort(key=lambda x: x["rsi"])
 
-        # Cache the results
-        autoscan_cache["results"] = results
-        autoscan_cache["timestamp"] = timestamp
-        autoscan_cache["symbols_scanned"] = symbols_scanned
+        # Cache the results (skip in backtest mode)
+        if not backtest_mode:
+            autoscan_cache["results"] = results
+            autoscan_cache["timestamp"] = timestamp
+            autoscan_cache["symbols_scanned"] = symbols_scanned
 
-        logging.info(f"Autoscan complete: {len(results)} matches from {len(symbols_scanned)} scanned")
+        mode_label = "BACKTEST" if backtest_mode else "Live"
+        logging.info(f"Autoscan [{mode_label}] complete: {len(results)} matches from {len(symbols_scanned)} scanned (fetched {bar_limit} bars/symbol)")
 
     except Exception as e:
         logging.error(f"Autoscan error: {e}")
@@ -2326,7 +2333,9 @@ def autoscan():
         "count": len(results),
         "scanned": len(symbols_scanned),
         "timestamp": timestamp.isoformat(),
-        "from_cache": False
+        "from_cache": False,
+        "backtest": backtest_mode,
+        "bars_fetched": bar_limit
     })
 
 
