@@ -1,4 +1,7 @@
-"""Web dashboard for monitoring trading agent."""
+"""Web dashboard for monitoring trading agent.
+
+VERSION: 1.4.0 - Autoscan + Watchlist + Hybrid Stop Loss
+"""
 import json
 from pathlib import Path
 from datetime import datetime
