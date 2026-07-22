@@ -88,6 +88,32 @@ def calculate_ema(prices, period=9):
     return ema_values
 
 
+def calculate_macd(prices, fast=12, slow=26, signal=9):
+    """Calculate MACD, Signal, and Histogram."""
+    if len(prices) < slow:
+        return [], [], []
+
+    fast_ema = calculate_ema(prices, fast)
+    slow_ema = calculate_ema(prices, slow)
+
+    # Align to same length
+    diff = len(fast_ema) - len(slow_ema)
+    if diff > 0:
+        fast_ema = fast_ema[diff:]
+
+    macd_line = [f - s for f, s in zip(fast_ema, slow_ema)]
+    signal_line = calculate_ema(macd_line, signal) if macd_line else []
+
+    # Align macd and signal
+    diff = len(macd_line) - len(signal_line)
+    if diff > 0:
+        macd_line = macd_line[diff:]
+
+    histogram = [m - s for m, s in zip(macd_line, signal_line)]
+
+    return macd_line, signal_line, histogram
+
+
 @app.route("/scanner")
 def scanner():
     """5M candlestick scanner with RSI(14) and EMA(9)."""
@@ -207,8 +233,25 @@ def scanner():
                 <button class="tab active" onclick="location.href='/scanner'">📊 Scanner</button>
             </div>
 
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
+                <h1>Candlestick Scanner</h1>
                 <div class="controls">
                     <input type="text" id="symbol" value="AAPL" placeholder="Symbol">
+                    <select id="interval" style="padding: 8px 12px; background: #222; border: 1px solid #444; color: #e0e0e0; border-radius: 4px;">
+                        <option value="1m">1 Min</option>
+                        <option value="5m" selected>5 Min</option>
+                        <option value="15m">15 Min</option>
+                        <option value="30m">30 Min</option>
+                        <option value="1h">1 Hour</option>
+                        <option value="1d">1 Day</option>
+                    </select>
+                    <select id="period" style="padding: 8px 12px; background: #222; border: 1px solid #444; color: #e0e0e0; border-radius: 4px;">
+                        <option value="1d">1 Day</option>
+                        <option value="5d" selected>5 Days</option>
+                        <option value="1mo">1 Month</option>
+                        <option value="3mo">3 Months</option>
+                        <option value="1y">1 Year</option>
+                    </select>
                     <button onclick="loadChart()">Load Chart</button>
                 </div>
             </div>
@@ -216,13 +259,18 @@ def scanner():
             <div id="error" class="error" style="display: none;"></div>
 
             <div class="chart-panel">
-                <div class="chart-title">Candlestick (5M) + EMA(9)</div>
+                <div class="chart-title" id="candleTitle">Candlestick + EMA(9)</div>
                 <canvas id="candleChart" width="1000" height="400"></canvas>
             </div>
 
             <div class="chart-panel">
                 <div class="chart-title">RSI (14)</div>
                 <canvas id="rsiChart" width="1000" height="150"></canvas>
+            </div>
+
+            <div class="chart-panel">
+                <div class="chart-title">MACD (12, 26, 9)</div>
+                <canvas id="macdChart" width="1000" height="150"></canvas>
             </div>
 
             <div class="indicators">
@@ -241,6 +289,21 @@ def scanner():
                     <div class="indicator-value" id="emaValue">—</div>
                     <div class="status" id="emaStatus"></div>
                 </div>
+                <div class="indicator-card" style="border-left-color: #8b5cf6;">
+                    <div class="indicator-label">MACD</div>
+                    <div class="indicator-value" id="macdValue">—</div>
+                    <div class="status" id="macdStatus"></div>
+                </div>
+                <div class="indicator-card" style="border-left-color: #06b6d4;">
+                    <div class="indicator-label">Signal</div>
+                    <div class="indicator-value" id="signalValue">—</div>
+                    <div class="status" id="signalStatus"></div>
+                </div>
+                <div class="indicator-card" style="border-left-color: #ec4899;">
+                    <div class="indicator-label">Histogram</div>
+                    <div class="indicator-value" id="histValue">—</div>
+                    <div class="status" id="histStatus"></div>
+                </div>
             </div>
         </div>
 
@@ -250,11 +313,13 @@ def scanner():
 
             async function loadChart() {
                 const symbol = document.getElementById('symbol').value.toUpperCase();
+                const interval = document.getElementById('interval').value;
+                const period = document.getElementById('period').value;
                 const errorDiv = document.getElementById('error');
                 errorDiv.style.display = 'none';
 
                 try {
-                    const response = await fetch('/api/chart-data/' + symbol);
+                    const response = await fetch(`/api/chart-data/${symbol}?interval=${interval}&period=${period}`);
                     if (!response.ok) throw new Error('Failed to fetch data');
 
                     const data = await response.json();
@@ -263,6 +328,13 @@ def scanner():
                     const candles = data.candles;
                     const rsiValues = data.rsi;
                     const emaValues = data.ema;
+                    const macdLine = data.macd;
+                    const signalLine = data.signal;
+                    const histogram = data.histogram;
+
+                    // Update title
+                    const intervalLabel = interval.replace('m', ' min').replace('h', ' hr').replace('d', ' day');
+                    document.getElementById('candleTitle').textContent = `Candlestick (${intervalLabel}) + EMA(9)`;
 
                     document.getElementById('priceValue').textContent = '$' + candles[candles.length - 1].close.toFixed(2);
                     document.getElementById('priceStatus').textContent = candles[candles.length - 1].time;
@@ -278,8 +350,19 @@ def scanner():
                     const diff = ((price - ema) / ema * 100).toFixed(2);
                     document.getElementById('emaStatus').textContent = (diff > 0 ? '+' : '') + diff + '%';
 
+                    const macd = macdLine[macdLine.length - 1];
+                    const signal = signalLine[signalLine.length - 1];
+                    const hist = histogram[histogram.length - 1];
+                    document.getElementById('macdValue').textContent = macd.toFixed(4);
+                    document.getElementById('macdStatus').textContent = macd > 0 ? '📈 Positive' : '📉 Negative';
+                    document.getElementById('signalValue').textContent = signal.toFixed(4);
+                    document.getElementById('signalStatus').textContent = macd > signal ? '🟢 Above' : '🔴 Below';
+                    document.getElementById('histValue').textContent = hist.toFixed(4);
+                    document.getElementById('histStatus').textContent = hist > 0 ? '⬆️ Bullish' : '⬇️ Bearish';
+
                     drawCandleChart(candles, emaValues);
                     drawRsiChart(rsiValues);
+                    drawMacdChart(macdLine, signalLine, histogram);
                 } catch (e) {
                     errorDiv.textContent = '❌ ' + e.message;
                     errorDiv.style.display = 'block';
@@ -390,6 +473,68 @@ def scanner():
                 rsiValues.forEach((rsi, i) => {
                     const x = PADDING + spacing * i;
                     const y = PADDING + (1 - rsi / 100) * chartHeight;
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                });
+                ctx.stroke();
+            }
+
+            function drawMacdChart(macdLine, signalLine, histogram) {
+                const canvas = document.getElementById('macdChart');
+                const ctx = canvas.getContext('2d');
+                const rect = canvas.getBoundingClientRect();
+                canvas.width = rect.width;
+                canvas.height = rect.height;
+
+                const PADDING = 60;
+                const chartWidth = canvas.width - PADDING * 2;
+                const chartHeight = canvas.height - PADDING * 2;
+                const spacing = chartWidth / macdLine.length;
+
+                const high = Math.max(...macdLine, ...signalLine);
+                const low = Math.min(...macdLine, ...signalLine);
+                const range = high - low || 1;
+
+                ctx.fillStyle = '#121212';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                // Grid
+                ctx.strokeStyle = '#333';
+                ctx.beginPath();
+                ctx.moveTo(PADDING, PADDING + chartHeight / 2);
+                ctx.lineTo(canvas.width - PADDING, PADDING + chartHeight / 2);
+                ctx.stroke();
+
+                // Histogram bars
+                histogram.forEach((hist, i) => {
+                    const x = PADDING + spacing * i;
+                    const baseY = PADDING + chartHeight / 2;
+                    const histY = baseY - (hist / range * chartHeight / 2);
+
+                    ctx.fillStyle = hist > 0 ? 'rgba(34, 197, 94, 0.6)' : 'rgba(239, 68, 68, 0.6)';
+                    const height = Math.abs(histY - baseY) || 1;
+                    ctx.fillRect(x, Math.min(baseY, histY), Math.max(1, spacing * 0.4), height);
+                });
+
+                // MACD line
+                ctx.strokeStyle = '#8b5cf6';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                macdLine.forEach((macd, i) => {
+                    const x = PADDING + spacing * i;
+                    const y = PADDING + chartHeight / 2 - (macd / range * chartHeight / 2);
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                });
+                ctx.stroke();
+
+                // Signal line
+                ctx.strokeStyle = '#06b6d4';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                signalLine.forEach((signal, i) => {
+                    const x = PADDING + spacing * i;
+                    const y = PADDING + chartHeight / 2 - (signal / range * chartHeight / 2);
                     if (i === 0) ctx.moveTo(x, y);
                     else ctx.lineTo(x, y);
                 });
@@ -782,10 +927,13 @@ def api_status():
 
 @app.route("/api/chart-data/<symbol>")
 def chart_data(symbol):
-    """Fetch 5M OHLC data and calculate indicators."""
+    """Fetch OHLC data and calculate indicators."""
     try:
+        interval = request.args.get("interval", "5m")
+        period = request.args.get("period", "5d")
+
         ticker = yf.Ticker(symbol)
-        hist = ticker.history(period="5d", interval="5m")
+        hist = ticker.history(period=period, interval=interval)
 
         if hist.empty:
             return jsonify({"error": f"No data for {symbol}"})
@@ -794,8 +942,9 @@ def chart_data(symbol):
         candles = []
 
         for idx, row in hist.iterrows():
+            time_format = "%H:%M" if interval in ["1m", "5m", "15m", "30m", "1h"] else "%Y-%m-%d"
             candles.append({
-                "time": idx.strftime("%H:%M"),
+                "time": idx.strftime(time_format),
                 "open": float(row['Open']),
                 "high": float(row['High']),
                 "low": float(row['Low']),
@@ -804,11 +953,15 @@ def chart_data(symbol):
 
         rsi = calculate_rsi(closes)
         ema = calculate_ema(closes)
+        macd_line, signal_line, histogram = calculate_macd(closes)
 
         return jsonify({
             "candles": candles,
             "rsi": rsi[-len(candles):] if rsi else [],
-            "ema": ema[-len(candles):] if ema else []
+            "ema": ema[-len(candles):] if ema else [],
+            "macd": macd_line[-len(candles):] if macd_line else [],
+            "signal": signal_line[-len(candles):] if signal_line else [],
+            "histogram": histogram[-len(candles):] if histogram else []
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 400
