@@ -251,6 +251,15 @@ def scanner():
                 <button class="tab active" onclick="location.href='/scanner'">📊 Scanner</button>
             </div>
 
+            <div id="tradingStatus" style="background: #1a4d2e; padding: 15px; border-radius: 8px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #2a7d3f;">
+                <div style="font-size: 16px; font-weight: bold;">
+                    Status: <span style="color: #22c55e;" id="statusEmoji">ACTIVE</span>
+                </div>
+                <button id="killSwitchBtn" class="kill-switch" onclick="toggleTradingScanner()" style="padding: 10px 20px; font-size: 14px;">
+                    STOP TRADING
+                </button>
+            </div>
+
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
                 <h1>Candlestick Scanner</h1>
                 <div class="controls">
@@ -358,6 +367,80 @@ def scanner():
             const RSI_OVERBOUGHT = 70;
             const RSI_OVERSOLD = 30;
 
+            // Load trading status on page load
+            async function loadTradingStatus() {
+                try {
+                    const response = await fetch('/api/status');
+                    const data = await response.json();
+                    updateTradingStatus(data.trading_enabled);
+                } catch (e) {
+                    console.error('Failed to load trading status', e);
+                }
+            }
+
+            function updateTradingStatus(tradingEnabled) {
+                const statusEmoji = document.getElementById('statusEmoji');
+                const killSwitchBtn = document.getElementById('killSwitchBtn');
+                const tradingStatusDiv = document.getElementById('tradingStatus');
+
+                if (tradingEnabled) {
+                    statusEmoji.textContent = 'ACTIVE';
+                    statusEmoji.style.color = '#22c55e';
+                    killSwitchBtn.textContent = 'STOP TRADING';
+                    killSwitchBtn.style.background = '#dc2626';
+                    tradingStatusDiv.style.background = '#1a4d2e';
+                    tradingStatusDiv.style.borderColor = '#2a7d3f';
+                } else {
+                    statusEmoji.textContent = 'STOPPED';
+                    statusEmoji.style.color = '#fca5a5';
+                    killSwitchBtn.textContent = 'RESUME TRADING';
+                    killSwitchBtn.style.background = '#22c55e';
+                    killSwitchBtn.style.color = '#000';
+                    tradingStatusDiv.style.background = '#7f1d1d';
+                    tradingStatusDiv.style.borderColor = '#dc2626';
+                }
+            }
+
+            async function toggleTradingScanner() {
+                const currentStatus = document.getElementById('statusEmoji').textContent;
+                const isActive = currentStatus === 'ACTIVE';
+
+                if (!isActive) {
+                    // About to resume - show warning
+                    const warningMessage = `⚠️ WARNING - RESUME TRADING ⚠️
+
+You are about to RESUME LIVE PAPER TRADING.
+
+ACKNOWLEDGMENT:
+• This agent executes AUTOMATED trades
+• Past performance does not guarantee future results
+• The strategy may lose money
+• You accept full responsibility for losses
+• You have reviewed and approved the current risk limits
+• You understand this is paper mode (simulated trades)
+
+Type "I ACCEPT RISK" to resume trading.
+Or click Cancel to keep trading stopped.`;
+
+                    const userInput = prompt(warningMessage);
+                    if (userInput !== 'I ACCEPT RISK') {
+                        alert('Trading remains stopped.');
+                        return;
+                    }
+                }
+
+                try {
+                    const response = await fetch('/api/toggle-trading', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    const data = await response.json();
+                    updateTradingStatus(data.trading_enabled);
+                } catch (e) {
+                    alert('Error toggling trading: ' + e);
+                }
+            }
+
             // Load persisted values on page load
             window.addEventListener('load', () => {
                 const savedSymbol = localStorage.getItem('scanner_symbol') || 'AAPL';
@@ -370,6 +453,7 @@ def scanner():
                 document.getElementById('period').value = savedPeriod;
                 document.getElementById('zoom').value = savedZoom;
 
+                loadTradingStatus();
                 loadChart();
             });
 
