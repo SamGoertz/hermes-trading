@@ -2149,30 +2149,35 @@ def autoscan():
                 'AMD', 'CRM', 'IBM', 'QCOM', 'PYPL', 'UBER', 'AVGO', 'MU', 'ADBE', 'NOW'
             ]
         else:
-            # Step 1.5: Query Alpaca movers endpoint for candidates (limit=100)
+            # Step 1.5: Query Alpaca screener/movers endpoint for live candidates
             try:
-                # Note: Alpaca SDK may vary; this is the historical data client.
-                # For real movers, you might need to use a screener endpoint if available,
-                # or fall back to a well-known list of liquid stocks.
-                logging.info("Fetching movers from Alpaca (using fallback list)")
-                candidates = [
-                    'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'BRK.B', 'JNJ', 'V',
-                    'WMT', 'JPM', 'PG', 'XOM', 'MA', 'INTC', 'CSCO', 'VZ', 'KO', 'NFLX',
-                    'AMD', 'CRM', 'IBM', 'QCOM', 'PYPL', 'UBER', 'AVGO', 'MU', 'ADBE', 'NOW',
-                    'AMAT', 'ASML', 'LRCX', 'SNPS', 'CDNS', 'MCHP', 'KLAC', 'NXPI', 'SIRI', 'SMCI',
-                    'ADSK', 'ANSS', 'AKAM', 'ALRM', 'ATVI', 'BMRN', 'BKNG', 'BILX', 'BLDP', 'BLDR',
-                    'CDNA', 'CERN', 'CHK', 'CHX', 'CHWY', 'CLNE', 'CLSK', 'CSTM', 'CTXS', 'CUBI',
-                    'CXW', 'DECK', 'DESP', 'DLTR', 'DNA', 'DOMO', 'DOOGS', 'DOYU', 'DWCH', 'DXCM',
-                    'EBET', 'EBJAB', 'ECTE', 'EDRY', 'EFII', 'EGOV', 'ELAN', 'ELMD', 'ELTK', 'EMKR',
-                    'EMTX', 'EOLS', 'EPAY', 'EPHY', 'EPIX', 'EPOW', 'EPRX', 'EPWR', 'EQIX', 'EQRX'
-                ][:100]  # Limit to 100 candidates
+                import os
+                import httpx
+                api_key = os.getenv("APCA_API_KEY_ID")
+                api_secret = os.getenv("APCA_API_SECRET_KEY")
+
+                headers = {
+                    "APCA-API-KEY-ID": api_key,
+                    "APCA-API-SECRET-KEY": api_secret
+                }
+
+                # Try Alpaca's movers endpoint (most active by volume)
+                logging.info("Fetching live movers from Alpaca API")
+                with httpx.Client(timeout=10.0) as http_client:
+                    response = http_client.get(
+                        "https://api.alpaca.markets/v1/screener/stocks/movers?by=volume&limit=100",
+                        headers=headers
+                    )
+                    if response.status_code == 200:
+                        data = response.json()
+                        candidates = [item["symbol"] for item in data.get("movers", [])][:100]
+                        logging.info(f"Got {len(candidates)} movers from Alpaca")
+                    else:
+                        logging.warning(f"Alpaca movers API failed ({response.status_code}), using fallback list")
+                        candidates = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'BRK.B', 'JNJ', 'V']
             except Exception as e:
-                logging.error(f"Error fetching Alpaca movers, using fallback: {e}")
-                candidates = [
-                    'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'BRK.B', 'JNJ', 'V',
-                    'WMT', 'JPM', 'PG', 'XOM', 'MA', 'INTC', 'CSCO', 'VZ', 'KO', 'NFLX',
-                    'AMD', 'CRM', 'IBM', 'QCOM', 'PYPL', 'UBER', 'AVGO', 'MU', 'ADBE', 'NOW'
-                ]
+                logging.error(f"Error fetching Alpaca movers: {e}, using fallback list")
+                candidates = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'BRK.B', 'JNJ', 'V']
 
         # Step 2: Scan each candidate
         for symbol in candidates:
