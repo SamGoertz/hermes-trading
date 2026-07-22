@@ -3,8 +3,10 @@ import json
 from pathlib import Path
 from datetime import datetime
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 import yaml
+import yfinance as yf
+import numpy as np
 
 app = Flask(__name__)
 
@@ -36,6 +38,370 @@ def load_hypotheses():
         return []
     with open(hyp_file) as f:
         return [json.loads(line) for line in f if line.strip()]
+
+
+def calculate_rsi(prices, period=14):
+    """Calculate RSI series."""
+    if len(prices) < period + 1:
+        return []
+
+    deltas = np.diff(prices)
+    gains = np.where(deltas > 0, deltas, 0)
+    losses = np.where(deltas < 0, -deltas, 0)
+
+    avg_gain = np.mean(gains[-period:])
+    avg_loss = np.mean(losses[-period:])
+
+    rsi_values = []
+    for i in range(period, len(prices)):
+        if avg_loss == 0:
+            rsi_values.append(100.0 if avg_gain > 0 else 0.0)
+        else:
+            rs = avg_gain / avg_loss
+            rsi_values.append(100.0 - (100.0 / (1.0 + rs)))
+
+        if i < len(prices) - 1:
+            delta = prices[i + 1] - prices[i]
+            if delta > 0:
+                avg_gain = (avg_gain * (period - 1) + delta) / period
+                avg_loss = (avg_loss * (period - 1)) / period
+            else:
+                avg_gain = (avg_gain * (period - 1)) / period
+                avg_loss = (avg_loss * (period - 1) + abs(delta)) / period
+
+    return rsi_values
+
+
+def calculate_ema(prices, period=9):
+    """Calculate EMA series."""
+    if len(prices) < period:
+        return []
+
+    k = 2 / (period + 1)
+    ema_values = []
+    sma = np.mean(prices[:period])
+
+    for i in range(period, len(prices)):
+        sma = prices[i] * k + sma * (1 - k)
+        ema_values.append(sma)
+
+    return ema_values
+
+
+@app.route("/scanner")
+def scanner():
+    """5M candlestick scanner with RSI(14) and EMA(9)."""
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>5M Scanner - RSI(14) + EMA(9)</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                background: #0f0f0f;
+                color: #e0e0e0;
+                padding: 20px;
+            }
+            .container { max-width: 1400px; margin: 0 auto; }
+            .header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 20px;
+                background: #1a1a1a;
+                padding: 15px;
+                border-radius: 8px;
+                border: 1px solid #333;
+            }
+            .controls {
+                display: flex;
+                gap: 10px;
+                align-items: center;
+            }
+            input {
+                padding: 8px 12px;
+                background: #222;
+                border: 1px solid #444;
+                color: #e0e0e0;
+                border-radius: 4px;
+            }
+            button {
+                padding: 8px 16px;
+                background: #22c55e;
+                color: #000;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-weight: bold;
+            }
+            button:hover { background: #16a34a; }
+            .chart-panel {
+                background: #1a1a1a;
+                border: 1px solid #333;
+                border-radius: 8px;
+                padding: 15px;
+                margin-bottom: 20px;
+            }
+            .chart-title {
+                font-size: 14px;
+                color: #888;
+                text-transform: uppercase;
+                margin-bottom: 10px;
+                font-weight: bold;
+            }
+            canvas { width: 100% !important; height: auto; display: block; background: #121212; border-radius: 4px; }
+            .indicators {
+                display: grid;
+                grid-template-columns: 1fr 1fr 1fr;
+                gap: 15px;
+            }
+            .indicator-card {
+                background: #222;
+                padding: 12px;
+                border-radius: 4px;
+                border-left: 3px solid #22c55e;
+            }
+            .indicator-card.rsi { border-left-color: #3b82f6; }
+            .indicator-card.ema { border-left-color: #f59e0b; }
+            .indicator-label { color: #888; font-size: 12px; text-transform: uppercase; }
+            .indicator-value { font-size: 20px; font-weight: bold; margin-top: 5px; }
+            .status { font-size: 12px; color: #666; margin-top: 8px; }
+            .error {
+                background: #7f1d1d;
+                border: 1px solid #dc2626;
+                color: #fca5a5;
+                padding: 12px;
+                border-radius: 4px;
+                margin-bottom: 15px;
+            }
+            .loading { text-align: center; padding: 40px; color: #666; }
+            .tabs {
+                display: flex;
+                gap: 10px;
+                margin-bottom: 20px;
+                border-bottom: 2px solid #333;
+            }
+            .tab {
+                padding: 12px 20px;
+                background: transparent;
+                border: none;
+                color: #888;
+                font-size: 14px;
+                cursor: pointer;
+                border-bottom: 2px solid transparent;
+                font-weight: 500;
+            }
+            .tab.active {
+                color: #22c55e;
+                border-bottom-color: #22c55e;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="tabs">
+                <button class="tab" onclick="location.href='/'">Dashboard</button>
+                <button class="tab active" onclick="location.href='/scanner'">📊 Scanner</button>
+            </div>
+
+                <div class="controls">
+                    <input type="text" id="symbol" value="AAPL" placeholder="Symbol">
+                    <button onclick="loadChart()">Load Chart</button>
+                </div>
+            </div>
+
+            <div id="error" class="error" style="display: none;"></div>
+
+            <div class="chart-panel">
+                <div class="chart-title">Candlestick (5M) + EMA(9)</div>
+                <canvas id="candleChart" width="1000" height="400"></canvas>
+            </div>
+
+            <div class="chart-panel">
+                <div class="chart-title">RSI (14)</div>
+                <canvas id="rsiChart" width="1000" height="150"></canvas>
+            </div>
+
+            <div class="indicators">
+                <div class="indicator-card">
+                    <div class="indicator-label">Price</div>
+                    <div class="indicator-value" id="priceValue">—</div>
+                    <div class="status" id="priceStatus"></div>
+                </div>
+                <div class="indicator-card rsi">
+                    <div class="indicator-label">RSI (14)</div>
+                    <div class="indicator-value" id="rsiValue">—</div>
+                    <div class="status" id="rsiStatus"></div>
+                </div>
+                <div class="indicator-card ema">
+                    <div class="indicator-label">EMA (9)</div>
+                    <div class="indicator-value" id="emaValue">—</div>
+                    <div class="status" id="emaStatus"></div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            const RSI_OVERBOUGHT = 70;
+            const RSI_OVERSOLD = 30;
+
+            async function loadChart() {
+                const symbol = document.getElementById('symbol').value.toUpperCase();
+                const errorDiv = document.getElementById('error');
+                errorDiv.style.display = 'none';
+
+                try {
+                    const response = await fetch('/api/chart-data/' + symbol);
+                    if (!response.ok) throw new Error('Failed to fetch data');
+
+                    const data = await response.json();
+                    if (data.error) throw new Error(data.error);
+
+                    const candles = data.candles;
+                    const rsiValues = data.rsi;
+                    const emaValues = data.ema;
+
+                    document.getElementById('priceValue').textContent = '$' + candles[candles.length - 1].close.toFixed(2);
+                    document.getElementById('priceStatus').textContent = candles[candles.length - 1].time;
+
+                    const rsi = rsiValues[rsiValues.length - 1];
+                    document.getElementById('rsiValue').textContent = rsi.toFixed(1);
+                    document.getElementById('rsiStatus').textContent =
+                        rsi > RSI_OVERBOUGHT ? '⚠️ Overbought' : rsi < RSI_OVERSOLD ? '📍 Oversold' : 'Neutral';
+
+                    const ema = emaValues[emaValues.length - 1];
+                    const price = candles[candles.length - 1].close;
+                    document.getElementById('emaValue').textContent = '$' + ema.toFixed(2);
+                    const diff = ((price - ema) / ema * 100).toFixed(2);
+                    document.getElementById('emaStatus').textContent = (diff > 0 ? '+' : '') + diff + '%';
+
+                    drawCandleChart(candles, emaValues);
+                    drawRsiChart(rsiValues);
+                } catch (e) {
+                    errorDiv.textContent = '❌ ' + e.message;
+                    errorDiv.style.display = 'block';
+                }
+            }
+
+            function drawCandleChart(candles, emaValues) {
+                const canvas = document.getElementById('candleChart');
+                const ctx = canvas.getContext('2d');
+                const rect = canvas.getBoundingClientRect();
+                canvas.width = rect.width;
+                canvas.height = rect.height;
+
+                const prices = candles.map(c => c.close);
+                const high = Math.max(...prices);
+                const low = Math.min(...prices);
+                const range = high - low;
+
+                const PADDING = 60;
+                const chartWidth = canvas.width - PADDING * 2;
+                const chartHeight = canvas.height - PADDING * 2;
+                const spacing = chartWidth / candles.length;
+
+                ctx.fillStyle = '#121212';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                ctx.strokeStyle = '#222';
+                for (let i = 0; i <= 5; i++) {
+                    const y = PADDING + (chartHeight / 5) * i;
+                    ctx.beginPath();
+                    ctx.moveTo(PADDING, y);
+                    ctx.lineTo(canvas.width - PADDING, y);
+                    ctx.stroke();
+
+                    ctx.fillStyle = '#666';
+                    ctx.font = '11px sans-serif';
+                    ctx.textAlign = 'right';
+                    ctx.fillText((high - (range / 5) * i).toFixed(2), PADDING - 10, y + 4);
+                }
+
+                candles.forEach((candle, i) => {
+                    const x = PADDING + spacing * i + spacing / 2;
+                    const candleWidth = Math.max(2, spacing * 0.6);
+
+                    const oY = PADDING + (1 - (candle.open - low) / range) * chartHeight;
+                    const hY = PADDING + (1 - (candle.high - low) / range) * chartHeight;
+                    const lY = PADDING + (1 - (candle.low - low) / range) * chartHeight;
+                    const cY = PADDING + (1 - (candle.close - low) / range) * chartHeight;
+
+                    const isBull = candle.close >= candle.open;
+                    ctx.fillStyle = isBull ? '#22c55e' : '#ef4444';
+                    ctx.strokeStyle = isBull ? '#16a34a' : '#dc2626';
+
+                    ctx.beginPath();
+                    ctx.moveTo(x, hY);
+                    ctx.lineTo(x, lY);
+                    ctx.stroke();
+
+                    ctx.fillRect(x - candleWidth / 2, Math.min(oY, cY), candleWidth, Math.abs(cY - oY) || 1);
+                });
+
+                ctx.strokeStyle = '#f59e0b';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                for (let i = 0; i < emaValues.length; i++) {
+                    const emaPrice = emaValues[i];
+                    const idx = i + (candles.length - emaValues.length);
+                    const x = PADDING + spacing * idx + spacing / 2;
+                    const y = PADDING + (1 - (emaPrice - low) / range) * chartHeight;
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+                ctx.stroke();
+            }
+
+            function drawRsiChart(rsiValues) {
+                const canvas = document.getElementById('rsiChart');
+                const ctx = canvas.getContext('2d');
+                const rect = canvas.getBoundingClientRect();
+                canvas.width = rect.width;
+                canvas.height = rect.height;
+
+                const PADDING = 60;
+                const chartWidth = canvas.width - PADDING * 2;
+                const chartHeight = canvas.height - PADDING * 2;
+                const spacing = chartWidth / rsiValues.length;
+
+                ctx.fillStyle = '#121212';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                ctx.strokeStyle = '#333';
+                const obY = PADDING + (1 - RSI_OVERBOUGHT / 100) * chartHeight;
+                const osY = PADDING + (1 - RSI_OVERSOLD / 100) * chartHeight;
+
+                ctx.beginPath();
+                ctx.moveTo(PADDING, obY);
+                ctx.lineTo(canvas.width - PADDING, obY);
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.moveTo(PADDING, osY);
+                ctx.lineTo(canvas.width - PADDING, osY);
+                ctx.stroke();
+
+                ctx.fillStyle = '#3b82f6';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                rsiValues.forEach((rsi, i) => {
+                    const x = PADDING + spacing * i;
+                    const y = PADDING + (1 - rsi / 100) * chartHeight;
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                });
+                ctx.stroke();
+            }
+
+            window.addEventListener('load', loadChart);
+        </script>
+    </body>
+    </html>
+    """
+    return html
 
 
 @app.route("/")
@@ -77,6 +443,29 @@ def dashboard():
                 font-size: 32px;
                 margin-bottom: 30px;
                 text-align: center;
+            }}
+            .tabs {{
+                display: flex;
+                gap: 10px;
+                margin-bottom: 20px;
+                border-bottom: 2px solid #333;
+            }}
+            .tab {{
+                padding: 12px 20px;
+                background: transparent;
+                border: none;
+                color: #888;
+                font-size: 14px;
+                cursor: pointer;
+                border-bottom: 2px solid transparent;
+                font-weight: 500;
+            }}
+            .tab.active {{
+                color: #22c55e;
+                border-bottom-color: #22c55e;
+            }}
+            .tab:hover {{
+                color: #fff;
             }}
             .status {{
                 background: {status_color};
@@ -179,6 +568,11 @@ def dashboard():
     <body>
         <div class="container">
             <h1>Hermes Trading Agent</h1>
+
+            <div class="tabs">
+                <button class="tab active" onclick="location.href='/'">Dashboard</button>
+                <button class="tab" onclick="location.href='/scanner'">📊 Scanner</button>
+            </div>
 
             <div class="status">
                 <div class="status-text">
@@ -384,6 +778,40 @@ def api_status():
         "total_reflections": len(hypotheses),
         "asset": goal.get("asset", "BTC/USDT"),
     })
+
+
+@app.route("/api/chart-data/<symbol>")
+def chart_data(symbol):
+    """Fetch 5M OHLC data and calculate indicators."""
+    try:
+        ticker = yf.Ticker(symbol)
+        hist = ticker.history(period="5d", interval="5m")
+
+        if hist.empty:
+            return jsonify({"error": f"No data for {symbol}"})
+
+        closes = hist['Close'].values.tolist()
+        candles = []
+
+        for idx, row in hist.iterrows():
+            candles.append({
+                "time": idx.strftime("%H:%M"),
+                "open": float(row['Open']),
+                "high": float(row['High']),
+                "low": float(row['Low']),
+                "close": float(row['Close']),
+            })
+
+        rsi = calculate_rsi(closes)
+        ema = calculate_ema(closes)
+
+        return jsonify({
+            "candles": candles,
+            "rsi": rsi[-len(candles):] if rsi else [],
+            "ema": ema[-len(candles):] if ema else []
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
 
 
 if __name__ == "__main__":
