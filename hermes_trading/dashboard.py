@@ -2125,16 +2125,17 @@ def get_fallback_candidates():
 @app.route("/api/autoscan")
 def autoscan():
     """
-    Scan market for oversold opportunities using Alpaca movers endpoint + 1H bars.
+    Scan market for oversold daily gainers using Alpaca movers endpoint + 1D bars.
 
-    Filters:
-    - Price: $2-20
-    - Volume: >= 500k shares (latest bar)
-    - RVol: > 1.5x (current volume / SMA(volume, 20))
-    - RSI(14): < 55 (Wilder's smoothing)
+    Filters (daily timeframe):
+    - Price: $20-50
+    - Daily gainers: close > open (stocks up on the day)
+    - Volume: >= 500k shares (daily)
+    - RVol: > 2.5x (30-day volume MA)
+    - RSI(14): < 35 (oversold on daily)
 
     Query params:
-    - backtest=true: Fetch 100 bars instead of 30 (test recent history)
+    - backtest=true: Fetch 100 bars instead of 30 (test recent 100 trading days)
 
     Returns: Top results sorted by RSI ascending (most oversold first)
     Cache TTL: 1 hour (disabled in backtest mode)
@@ -2203,12 +2204,12 @@ def autoscan():
             try:
                 symbols_scanned.append(symbol)
 
-                # Fetch bars (1H timeframe) using Alpaca
+                # Fetch bars (1D timeframe) using Alpaca
                 if ALPACA_AVAILABLE and client:
                     try:
                         request_params = StockBarsRequest(
                             symbol_or_symbols=symbol,
-                            timeframe=TimeFrame.Hour,
+                            timeframe=TimeFrame.Day,
                             limit=bar_limit
                         )
                         bars = client.get_stock_bars(request_params)
@@ -2221,75 +2222,82 @@ def autoscan():
 
                     except Exception as e:
                         logging.debug(f"Alpaca fetch failed for {symbol}: {e}, trying yfinance fallback")
-                        # Fallback to yfinance
+                        # Fallback to yfinance (1D bars)
                         ticker = yf.Ticker(symbol)
-                        hist = ticker.history(period="5d", interval="1h")
+                        hist = ticker.history(period="6mo", interval="1d")
                         if hist.empty or len(hist) < 20:
                             continue
 
                         # Convert yfinance hist to bar-like objects
                         class YFBar:
-                            def __init__(self, close, volume):
+                            def __init__(self, open_price, close, volume):
+                                self.open = open_price
                                 self.close = close
                                 self.volume = volume
 
-                        bar_list = [YFBar(float(hist['Close'].iloc[i]), int(hist['Volume'].iloc[i]))
+                        bar_list = [YFBar(float(hist['Open'].iloc[i]), float(hist['Close'].iloc[i]), int(hist['Volume'].iloc[i]))
                                    for i in range(len(hist))]
                 else:
-                    # Pure yfinance fallback
+                    # Pure yfinance fallback (1D bars)
                     ticker = yf.Ticker(symbol)
-                    hist = ticker.history(period="5d", interval="1h")
+                    hist = ticker.history(period="6mo", interval="1d")
                     if hist.empty or len(hist) < 20:
                         continue
 
                     class YFBar:
-                        def __init__(self, close, volume):
+                        def __init__(self, open_price, close, volume):
+                            self.open = open_price
                             self.close = close
                             self.volume = volume
 
-                    bar_list = [YFBar(float(hist['Close'].iloc[i]), int(hist['Volume'].iloc[i]))
+                    bar_list = [YFBar(float(hist['Open'].iloc[i]), float(hist['Close'].iloc[i]), int(hist['Volume'].iloc[i]))
                                for i in range(len(hist))]
 
-                # Extract close prices and volumes
+                # Extract close prices, open prices, and volumes
                 closes = [float(bar.close) for bar in bar_list]
+                opens = [float(bar.open) for bar in bar_list] if hasattr(bar_list[0], 'open') else None
                 volumes = [int(bar.volume) for bar in bar_list]
 
                 current_price = closes[-1]
                 current_volume = volumes[-1]
 
-                # Filter 1: Price range $2.00 - $20.00
-                if current_price < 2.00 or current_price > 20.00:
+                # Filter 1: Price range $20.00 - $50.00
+                if current_price < 20.00 or current_price > 50.00:
                     continue
+
+                # Filter 1b: Daily gainer (close > open on latest bar)
+                if opens is not None:
+                    current_open = opens[-1]
+                    if current_price <= current_open:
+                        continue
 
                 # Filter 2: Current volume >= 500,000 shares
                 if current_volume < 500000:
                     continue
 
-                # Filter 3: RVol = current_volume / SMA(volume, 20)
-                if len(volumes) < 20:
+                # Filter 3: RVol = current_volume / SMA(volume, 30)
+                if len(volumes) < 30:
                     sma_vol = np.mean(volumes)
                 else:
-                    sma_vol = np.mean(volumes[-20:])
+                    sma_vol = np.mean(volumes[-30:])
 
                 if sma_vol == 0:
                     continue
 
                 rvol = current_volume / sma_vol
-                if rvol <= 1.5:
+                if rvol <= 2.5:
                     continue
 
-                # Filter 4: RSI(14) < 55 (Wilder's smoothing via calculate_rsi)
+                # Filter 4: RSI(14) < 35 on latest daily bar (Wilder's smoothing via calculate_rsi)
                 rsi_values = calculate_rsi(closes, period=14)
 
-                if not rsi_values or len(rsi_values) < 3:
+                if not rsi_values or len(rsi_values) < 1:
                     continue
 
-                # Check if RSI < 55 in last 3 bars
-                last_3_rsi = rsi_values[-3:]
-                if not any(rsi < 55 for rsi in last_3_rsi):
-                    continue
-
+                # Check if RSI < 35 (oversold threshold)
                 current_rsi = rsi_values[-1]
+                if current_rsi >= 35:
+                    continue
 
                 # All filters passed - add to results
                 results.append({
