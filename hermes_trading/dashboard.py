@@ -368,40 +368,63 @@ def scanner():
                     const data = await response.json();
                     if (data.error) throw new Error(data.error);
 
-                    const candles = data.candles;
-                    const rsiValues = data.rsi;
-                    const emaValues = data.ema;
-                    const macdLine = data.macd;
-                    const signalLine = data.signal;
-                    const histogram = data.histogram;
+                    const candles = data.candles || [];
+                    const rsiValues = data.rsi || [];
+                    const emaValues = data.ema || [];
+                    const macdLine = data.macd || [];
+                    const signalLine = data.signal || [];
+                    const histogram = data.histogram || [];
+
+                    if (!candles.length) throw new Error('No candle data returned');
 
                     // Update title
                     const intervalLabel = interval.replace('m', ' min').replace('h', ' hr').replace('d', ' day');
-                    document.getElementById('candleTitle').textContent = `Candlestick (${intervalLabel}) + EMA(9)`;
+                    document.getElementById('candleTitle').textContent = `Candlestick (${intervalLabel}) + EMA(9) - ${candles.length} candles`;
 
-                    document.getElementById('priceValue').textContent = '$' + candles[candles.length - 1].close.toFixed(2);
-                    document.getElementById('priceStatus').textContent = candles[candles.length - 1].time;
+                    if (candles.length > 0) {
+                        document.getElementById('priceValue').textContent = '$' + candles[candles.length - 1].close.toFixed(2);
+                        document.getElementById('priceStatus').textContent = candles[candles.length - 1].time;
+                    }
 
-                    const rsi = rsiValues[rsiValues.length - 1];
-                    document.getElementById('rsiValue').textContent = rsi.toFixed(1);
-                    document.getElementById('rsiStatus').textContent =
-                        rsi > RSI_OVERBOUGHT ? '⚠️ Overbought' : rsi < RSI_OVERSOLD ? '📍 Oversold' : 'Neutral';
+                    if (rsiValues.length > 0) {
+                        const rsi = rsiValues[rsiValues.length - 1];
+                        document.getElementById('rsiValue').textContent = (rsi || 0).toFixed(1);
+                        document.getElementById('rsiStatus').textContent =
+                            rsi > RSI_OVERBOUGHT ? '⚠️ Overbought' : rsi < RSI_OVERSOLD ? '📍 Oversold' : 'Neutral';
+                    } else {
+                        document.getElementById('rsiValue').textContent = '—';
+                        document.getElementById('rsiStatus').textContent = 'Insufficient data';
+                    }
 
-                    const ema = emaValues[emaValues.length - 1];
-                    const price = candles[candles.length - 1].close;
-                    document.getElementById('emaValue').textContent = '$' + ema.toFixed(2);
-                    const diff = ((price - ema) / ema * 100).toFixed(2);
-                    document.getElementById('emaStatus').textContent = (diff > 0 ? '+' : '') + diff + '%';
+                    if (emaValues.length > 0 && candles.length > 0) {
+                        const ema = emaValues[emaValues.length - 1];
+                        const price = candles[candles.length - 1].close;
+                        document.getElementById('emaValue').textContent = '$' + (ema || 0).toFixed(2);
+                        const diff = ((price - (ema || price)) / (ema || price) * 100).toFixed(2);
+                        document.getElementById('emaStatus').textContent = (diff > 0 ? '+' : '') + diff + '%';
+                    } else {
+                        document.getElementById('emaValue').textContent = '—';
+                        document.getElementById('emaStatus').textContent = 'Insufficient data';
+                    }
 
-                    const macd = macdLine[macdLine.length - 1];
-                    const signal = signalLine[signalLine.length - 1];
-                    const hist = histogram[histogram.length - 1];
-                    document.getElementById('macdValue').textContent = macd.toFixed(4);
-                    document.getElementById('macdStatus').textContent = macd > 0 ? '📈 Positive' : '📉 Negative';
-                    document.getElementById('signalValue').textContent = signal.toFixed(4);
-                    document.getElementById('signalStatus').textContent = macd > signal ? '🟢 Above' : '🔴 Below';
-                    document.getElementById('histValue').textContent = hist.toFixed(4);
-                    document.getElementById('histStatus').textContent = hist > 0 ? '⬆️ Bullish' : '⬇️ Bearish';
+                    if (macdLine.length > 0 && signalLine.length > 0 && histogram.length > 0) {
+                        const macd = macdLine[macdLine.length - 1];
+                        const signal = signalLine[signalLine.length - 1];
+                        const hist = histogram[histogram.length - 1];
+                        document.getElementById('macdValue').textContent = (macd || 0).toFixed(4);
+                        document.getElementById('macdStatus').textContent = (macd || 0) > 0 ? '📈 Positive' : '📉 Negative';
+                        document.getElementById('signalValue').textContent = (signal || 0).toFixed(4);
+                        document.getElementById('signalStatus').textContent = (macd || 0) > (signal || 0) ? '🟢 Above' : '🔴 Below';
+                        document.getElementById('histValue').textContent = (hist || 0).toFixed(4);
+                        document.getElementById('histStatus').textContent = (hist || 0) > 0 ? '⬆️ Bullish' : '⬇️ Bearish';
+                    } else {
+                        document.getElementById('macdValue').textContent = '—';
+                        document.getElementById('macdStatus').textContent = 'Insufficient data';
+                        document.getElementById('signalValue').textContent = '—';
+                        document.getElementById('signalStatus').textContent = '';
+                        document.getElementById('histValue').textContent = '—';
+                        document.getElementById('histStatus').textContent = '';
+                    }
 
                     drawCandleChart(candles, emaValues);
                     drawRsiChart(rsiValues);
@@ -1063,16 +1086,25 @@ def chart_data(symbol):
 
         ticker = yf.Ticker(symbol)
 
-        # For daily charts, use period without interval to get cleaner data
+        # Handle interval/period combinations
         if interval == "1d":
-            hist = ticker.history(period="1y")  # Get 1 year of daily data
+            hist = ticker.history(period="1y")
+        elif interval == "1h" and period == "1d":
+            # If requesting 1h data for 1 day, fetch 5 days to get intraday data
+            hist = ticker.history(period="5d", interval="1h")
+        elif interval in ["15m", "30m"] and period == "1d":
+            # If requesting 15m/30m for 1 day, fetch 5 days to get intraday data
+            hist = ticker.history(period="5d", interval=interval)
         else:
             hist = ticker.history(period=period, interval=interval)
 
         if hist.empty:
-            return jsonify({"error": f"No data for {symbol}"})
+            return jsonify({"error": f"No data for {symbol}. Try a longer period or different interval."})
 
         closes = hist['Close'].values.tolist()
+        if len(closes) < 2:
+            return jsonify({"error": f"Insufficient data (only {len(closes)} candles). Try a longer period."})
+
         candles = []
 
         for idx, row in hist.iterrows():
@@ -1085,7 +1117,7 @@ def chart_data(symbol):
 
             candles.append({
                 "time": idx.strftime(time_format),
-                "full_time": idx.isoformat(),  # Store full ISO time for crosshairs
+                "full_time": idx.isoformat(),
                 "open": float(row['Open']),
                 "high": float(row['High']),
                 "low": float(row['Low']),
@@ -1105,7 +1137,7 @@ def chart_data(symbol):
             "histogram": histogram[-len(candles):] if histogram else []
         })
     except Exception as e:
-        return jsonify({"error": str(e)}), 400
+        return jsonify({"error": f"Data error: {str(e)}"}), 400
 
 
 if __name__ == "__main__":
