@@ -6,14 +6,11 @@ import json
 from pathlib import Path
 from datetime import datetime, timedelta
 import logging
-from dotenv import load_dotenv
 
 from flask import Flask, jsonify, request
 import yaml
 import yfinance as yf
 import numpy as np
-
-load_dotenv()
 
 try:
     from alpaca.data.historical import StockHistoricalDataClient
