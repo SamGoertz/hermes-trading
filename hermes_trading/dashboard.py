@@ -296,6 +296,11 @@ def scanner():
             </div>
 
             <div class="chart-panel">
+                <div class="chart-title">Volume</div>
+                <canvas id="volumeChart" width="1000" height="120"></canvas>
+            </div>
+
+            <div class="chart-panel">
                 <div class="chart-title">RSI (14)</div>
                 <canvas id="rsiChart" width="1000" height="150"></canvas>
             </div>
@@ -335,6 +340,16 @@ def scanner():
                     <div class="indicator-label">Histogram</div>
                     <div class="indicator-value" id="histValue">—</div>
                     <div class="status" id="histStatus"></div>
+                </div>
+                <div class="indicator-card" style="border-left-color: #10b981;">
+                    <div class="indicator-label">Volume</div>
+                    <div class="indicator-value" id="volumeValue">—</div>
+                    <div class="status" id="volumeStatus"></div>
+                </div>
+                <div class="indicator-card" style="border-left-color: #6366f1;">
+                    <div class="indicator-label">Avg Volume</div>
+                    <div class="indicator-value" id="avgVolValue">—</div>
+                    <div class="status" id="avgVolStatus"></div>
                 </div>
             </div>
         </div>
@@ -457,7 +472,23 @@ def scanner():
                         displayHist = histogram.slice(Math.max(0, histogram.length - zoomCount));
                     }
 
+                    // Extract volumes for display
+                    const displayVolumes = displayCandles.map(c => c.volume);
+                    const avgVol = displayVolumes.length > 0
+                        ? Math.round(displayVolumes.reduce((a, b) => a + b, 0) / displayVolumes.length)
+                        : 0;
+                    const currentVol = displayCandles.length > 0 ? displayCandles[displayCandles.length - 1].volume : 0;
+
+                    // Update volume stats
+                    document.getElementById('volumeValue').textContent = currentVol.toLocaleString();
+                    const volTrend = currentVol > avgVol ? '📈 Above avg' : currentVol < avgVol ? '📉 Below avg' : '➖ At avg';
+                    document.getElementById('volumeStatus').textContent = volTrend;
+                    document.getElementById('avgVolValue').textContent = avgVol.toLocaleString();
+                    const volPercent = avgVol > 0 ? (((currentVol - avgVol) / avgVol) * 100).toFixed(0) : 0;
+                    document.getElementById('avgVolStatus').textContent = (volPercent > 0 ? '+' : '') + volPercent + '%';
+
                     drawCandleChart(displayCandles, displayEma);
+                    drawVolumeChart(displayCandles);
                     drawRsiChart(displayRsi);
                     drawMacdChart(displayMacd, displaySignal, displayHist);
                 } catch (e) {
@@ -594,6 +625,68 @@ def scanner():
                 canvas.addEventListener('mouseleave', () => {
                     document.getElementById('crosshairs').style.display = 'none';
                 });
+            }
+
+            function drawVolumeChart(candles) {
+                const canvas = document.getElementById('volumeChart');
+                const ctx = canvas.getContext('2d');
+                const rect = canvas.getBoundingClientRect();
+                canvas.width = rect.width;
+                canvas.height = rect.height;
+
+                const volumes = candles.map(c => c.volume);
+                const maxVol = Math.max(...volumes);
+                const avgVol = volumes.reduce((a, b) => a + b, 0) / volumes.length;
+
+                const PADDING = 60;
+                const chartWidth = canvas.width - PADDING * 2;
+                const chartHeight = canvas.height - PADDING * 2;
+                const spacing = chartWidth / candles.length;
+
+                ctx.fillStyle = '#121212';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                // Average volume line
+                const avgY = PADDING + (1 - (avgVol / maxVol)) * chartHeight;
+                ctx.strokeStyle = '#666';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath();
+                ctx.moveTo(PADDING, avgY);
+                ctx.lineTo(canvas.width - PADDING, avgY);
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                // Y-axis labels
+                ctx.fillStyle = '#666';
+                ctx.font = '11px sans-serif';
+                ctx.textAlign = 'right';
+                ctx.fillText((maxVol / 1e6).toFixed(1) + 'M', PADDING - 10, PADDING + 4);
+                ctx.fillText((avgVol / 1e6).toFixed(1) + 'M', PADDING - 10, avgY + 4);
+                ctx.fillText('0', PADDING - 10, canvas.height - PADDING + 4);
+
+                // Volume bars
+                candles.forEach((candle, i) => {
+                    const x = PADDING + spacing * i + spacing / 2;
+                    const barWidth = Math.max(1, spacing * 0.7);
+                    const vol = candle.volume;
+                    const barHeight = (vol / maxVol) * chartHeight;
+                    const barY = PADDING + chartHeight - barHeight;
+
+                    // Color: green if close > open, red otherwise
+                    const isBull = candle.close >= candle.open;
+                    ctx.fillStyle = isBull ? 'rgba(34, 197, 94, 0.7)' : 'rgba(239, 68, 68, 0.7)';
+                    ctx.fillRect(x - barWidth / 2, barY, barWidth, barHeight);
+                });
+
+                // X-axis time labels (sparse)
+                ctx.fillStyle = '#666';
+                ctx.textAlign = 'center';
+                const labelInterval = Math.max(1, Math.floor(candles.length / 8));
+                for (let i = 0; i < candles.length; i += labelInterval) {
+                    const x = PADDING + spacing * i + spacing / 2;
+                    ctx.fillText(candles[i].time, x, canvas.height - 10);
+                }
             }
 
             function drawRsiChart(rsiValues) {
@@ -1133,6 +1226,8 @@ def chart_data(symbol):
             return jsonify({"error": f"No data for {symbol}. Try a longer period or different interval."})
 
         closes = hist['Close'].values.tolist()
+        volumes = hist['Volume'].values.tolist() if 'Volume' in hist.columns else [0] * len(closes)
+
         if len(closes) < 2:
             return jsonify({"error": f"Insufficient data (only {len(closes)} candles). Try a longer period."})
 
@@ -1153,6 +1248,7 @@ def chart_data(symbol):
                 "high": float(row['High']),
                 "low": float(row['Low']),
                 "close": float(row['Close']),
+                "volume": int(row.get('Volume', 0)) if 'Volume' in row else 0,
             })
 
         rsi = calculate_rsi(closes)
