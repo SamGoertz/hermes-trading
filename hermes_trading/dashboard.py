@@ -2109,6 +2109,20 @@ def chart_data(symbol):
 
 
 @app.route("/api/autoscan")
+def get_fallback_candidates():
+    """Return comprehensive fallback list of liquid stocks for screening."""
+    return [
+        'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'BRK.B', 'JNJ', 'V',
+        'WMT', 'JPM', 'PG', 'XOM', 'MA', 'INTC', 'CSCO', 'VZ', 'KO', 'NFLX',
+        'AMD', 'CRM', 'IBM', 'QCOM', 'PYPL', 'UBER', 'AVGO', 'MU', 'ADBE', 'NOW',
+        'AMAT', 'ASML', 'LRCX', 'SNPS', 'CDNS', 'MCHP', 'KLAC', 'NXPI', 'SIRI', 'SMCI',
+        'ADSK', 'ANSS', 'AKAM', 'ALRM', 'ATVI', 'BMRN', 'BKNG', 'BILX', 'BLDP', 'BLDR',
+        'CDNA', 'CERN', 'CHK', 'CHX', 'CHWY', 'CLNE', 'CLSK', 'CSTM', 'CTXS', 'CUBI',
+        'CXW', 'DECK', 'DESP', 'DLTR', 'DNA', 'DOMO', 'DOOGS', 'DOYU', 'DWCH', 'DXCM',
+        'EBET', 'EBJAB', 'ECTE', 'EDRY', 'EFII', 'EGOV', 'ELAN', 'ELMD', 'ELTK', 'EMKR',
+        'EMTX', 'EOLS', 'EPAY', 'EPHY', 'EPIX', 'EPOW', 'EPRX', 'EPWR', 'EQIX', 'EQRX'
+    ]
+
 def autoscan():
     """
     Scan market for oversold opportunities using Alpaca movers endpoint + 1H bars.
@@ -2174,10 +2188,10 @@ def autoscan():
                         logging.info(f"Got {len(candidates)} movers from Alpaca")
                     else:
                         logging.warning(f"Alpaca movers API failed ({response.status_code}), using fallback list")
-                        candidates = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'BRK.B', 'JNJ', 'V']
+                        candidates = get_fallback_candidates()
             except Exception as e:
                 logging.error(f"Error fetching Alpaca movers: {e}, using fallback list")
-                candidates = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'BRK.B', 'JNJ', 'V']
+                candidates = get_fallback_candidates()
 
         # Step 2: Scan each candidate
         for symbol in candidates:
