@@ -13,7 +13,8 @@ RUN pip install --upgrade pip && \
     pandas \
     rich \
     flask \
-    yfinance
+    yfinance \
+    alpaca-py
 ENV HERMES_TRADING_MODE=paper
 ENV HERMES_TRADING_I_ACCEPT_RISK=false
 EXPOSE 5000

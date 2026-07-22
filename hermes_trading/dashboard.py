@@ -2026,6 +2026,10 @@ def is_cache_valid():
 
 def get_alpaca_client():
     """Get Alpaca historical data client (uses APCA_API_KEY_ID and APCA_API_SECRET_KEY env vars)."""
+    if not ALPACA_AVAILABLE:
+        logging.warning("Alpaca SDK not available - fallback to hardcoded list")
+        return None
+
     try:
         import os
         api_key = os.getenv("APCA_API_KEY_ID")
