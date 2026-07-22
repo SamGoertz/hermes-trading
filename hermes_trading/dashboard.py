@@ -242,6 +242,92 @@ def scanner():
                 color: #22c55e;
                 border-bottom-color: #22c55e;
             }
+            .autoscan-panel {
+                background: #1a2d1a;
+                border: 1px solid #2a7d3f;
+                border-radius: 8px;
+                padding: 20px;
+                margin-bottom: 20px;
+            }
+            .autoscan-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 15px;
+            }
+            .autoscan-header h2 {
+                font-size: 16px;
+                margin: 0;
+                color: #e0e0e0;
+            }
+            #autoscanBtn {
+                padding: 10px 20px;
+                background: #22c55e;
+                color: #000;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            #autoscanBtn:hover { background: #16a34a; }
+            #autoscanBtn:disabled {
+                background: #666;
+                cursor: not-allowed;
+            }
+            #autoscanStatus {
+                font-size: 13px;
+                color: #888;
+                margin-bottom: 15px;
+                min-height: 20px;
+            }
+            #autoscanStatus.scanning { color: #22c55e; }
+            #autoscanStatus.error { color: #ef4444; }
+            #autoscanResults {
+                background: #121212;
+                border: 1px solid #333;
+                border-radius: 4px;
+                padding: 15px;
+                display: none;
+                max-height: 400px;
+                overflow-y: auto;
+            }
+            #autoscanResults.visible {
+                display: block;
+            }
+            .result-count {
+                color: #888;
+                font-size: 12px;
+                margin-bottom: 10px;
+                text-transform: uppercase;
+            }
+            #resultsList {
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+            }
+            .result-item {
+                background: #1a1a1a;
+                border-left: 3px solid #22c55e;
+                padding: 10px 12px;
+                border-radius: 4px;
+                font-size: 13px;
+                cursor: pointer;
+                transition: background 0.2s;
+            }
+            .result-item:hover {
+                background: #222;
+            }
+            .result-symbol {
+                font-weight: bold;
+                color: #22c55e;
+                margin-right: 8px;
+            }
+            .result-details {
+                color: #aaa;
+                font-size: 12px;
+                margin-top: 4px;
+            }
         </style>
     </head>
     <body>
@@ -274,6 +360,20 @@ def scanner():
                 </div>
             </div>
 
+            <div class="autoscan-panel">
+                <div class="autoscan-header">
+                    <h2>🔍 Market Autoscan</h2>
+                    <button id="autoscanBtn" onclick="startAutoscan()">🔍 AUTOSCAN MARKET</button>
+                </div>
+                <div id="autoscanStatus"></div>
+                <div id="autoscanResults">
+                    <div class="result-count">
+                        Found <span id="resultCount">0</span> matching signals
+                    </div>
+                    <div id="resultsList"></div>
+                </div>
+            </div>
+
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
                 <h1>Candlestick Scanner</h1>
                 <div class="controls">
@@ -301,10 +401,17 @@ def scanner():
                         <option value="10">Last 10 Candles</option>
                     </select>
                     <button onclick="loadChart()">Load Chart</button>
+                    <button id="autoscanBtn" onclick="startAutoscan()" style="padding: 8px 16px; background: #3b82f6; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Autoscan</button>
                 </div>
             </div>
 
             <div id="error" class="error" style="display: none;"></div>
+
+            <div id="resultsList" style="display: none; background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+                <div style="font-size: 14px; color: #888; text-transform: uppercase; margin-bottom: 10px; font-weight: bold;">Autoscan Results</div>
+                <div id="scanStatus" style="font-size: 12px; color: #666; margin-bottom: 10px;"></div>
+                <div id="scanResults" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px;"></div>
+            </div>
 
             <div class="chart-panel">
                 <div class="chart-title" id="candleTitle">Candlestick + EMA(9)</div>
@@ -980,6 +1087,82 @@ Or click Cancel to keep trading stopped.`;
                 });
                 ctx.stroke();
             }
+
+            async function startAutoscan() {
+                const autoscanBtn = document.getElementById('autoscanBtn');
+                const resultsList = document.getElementById('resultsList');
+                const scanStatus = document.getElementById('scanStatus');
+                const scanResults = document.getElementById('scanResults');
+
+                // Disable button and show status
+                autoscanBtn.disabled = true;
+                autoscanBtn.style.background = '#888';
+                scanStatus.textContent = 'Scanning market...';
+                resultsList.style.display = 'block';
+                scanResults.innerHTML = '';
+
+                try {
+                    const response = await fetch('/api/autoscan');
+                    const data = await response.json();
+
+                    if (data.error) {
+                        scanStatus.textContent = 'Error: ' + data.error;
+                        return;
+                    }
+
+                    const results = data.results || [];
+                    const count = data.count || 0;
+
+                    // Update status with result count
+                    scanStatus.textContent = `Found ${count} result(s) from ${data.scanned} stocks scanned`;
+
+                    // Display results
+                    if (results.length === 0) {
+                        scanResults.innerHTML = '<div style="color: #666; padding: 20px; text-align: center;">No results matching criteria</div>';
+                    } else {
+                        results.forEach(result => {
+                            const resultCard = document.createElement('div');
+                            resultCard.style.cssText = 'background: #222; border: 1px solid #444; padding: 12px; border-radius: 4px; cursor: pointer; transition: all 0.2s;';
+                            resultCard.onmouseover = () => resultCard.style.background = '#2a2a2a';
+                            resultCard.onmouseout = () => resultCard.style.background = '#222';
+                            resultCard.onclick = () => loadStockChart(result.symbol);
+
+                            const rsiColor = result.rsi < 30 ? '#ef4444' : result.rsi < 50 ? '#f59e0b' : '#22c55e';
+
+                            resultCard.innerHTML = `
+                                <div style="font-weight: bold; font-size: 16px; color: #22c55e; margin-bottom: 8px;">${result.symbol}</div>
+                                <div style="font-size: 12px; color: #888;">Price</div>
+                                <div style="font-size: 14px; color: #e0e0e0; margin-bottom: 8px;">$${result.price.toFixed(2)}</div>
+                                <div style="font-size: 12px; color: #888;">Volume</div>
+                                <div style="font-size: 13px; color: #e0e0e0; margin-bottom: 8px;">${result.volume.toLocaleString()}</div>
+                                <div style="font-size: 12px; color: #888;">RVol / RSI</div>
+                                <div style="font-size: 13px; color: #e0e0e0;"><span style="color: #3b82f6;">${result.rvol.toFixed(2)}x</span> / <span style="color: ${rsiColor};">${result.rsi.toFixed(1)}</span></div>
+                            `;
+
+                            scanResults.appendChild(resultCard);
+                        });
+                    }
+                } catch (e) {
+                    scanStatus.textContent = 'Error: ' + e.message;
+                } finally {
+                    autoscanBtn.disabled = false;
+                    autoscanBtn.style.background = '#3b82f6';
+                }
+            }
+
+            function loadStockChart(symbol) {
+                // Set the symbol in the input field
+                document.getElementById('symbol').value = symbol.toUpperCase();
+
+                // Save to localStorage
+                localStorage.setItem('scanner_symbol', symbol.toUpperCase());
+
+                // Call the existing loadChart function
+                loadChart();
+
+                // Scroll to the chart
+                document.getElementById('candleChart').scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
         </script>
     </body>
     </html>
@@ -1352,6 +1535,82 @@ Or click Cancel to keep trading stopped.`;
                 document.getElementById('trailingUnit').textContent = unit;
             }});
 
+            // Autoscan functionality
+            async function startAutoscan() {{
+                const btn = document.getElementById('autoscanBtn');
+                const statusDiv = document.getElementById('autoscanStatus');
+                const resultsPanel = document.getElementById('autoscanResults');
+                const resultsList = document.getElementById('resultsList');
+                const resultCount = document.getElementById('resultCount');
+
+                btn.disabled = true;
+                statusDiv.textContent = 'Scanning market...';
+                statusDiv.className = 'scanning';
+                resultsList.innerHTML = '';
+                resultsPanel.classList.remove('visible');
+
+                try {{
+                    // Fetch data for multiple symbols
+                    const symbols = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'TSLA', 'META', 'SPY', 'QQQ'];
+                    const results = [];
+
+                    for (const symbol of symbols) {{
+                        try {{
+                            const data = await fetch(`/api/scan?symbol=${{symbol}}&interval=5m&period=1d`).then(r => r.json());
+                            if (data && data.signal) {{
+                                results.push({{
+                                    symbol: symbol,
+                                    price: data.price,
+                                    signal: data.signal,
+                                    rsi: data.rsi,
+                                    ema: data.ema
+                                }});
+                            }}
+                        }} catch (e) {{
+                            console.log(`Failed to scan ${{symbol}}:`, e);
+                        }}
+                    }}
+
+                    resultCount.textContent = results.length;
+
+                    if (results.length > 0) {{
+                        results.forEach(result => {{
+                            const item = document.createElement('div');
+                            item.className = 'result-item';
+                            item.onclick = () => {{
+                                document.getElementById('symbol').value = result.symbol;
+                                loadChart();
+                            }};
+
+                            const signalColor = result.signal === 'BUY' ? '#22c55e' : result.signal === 'SELL' ? '#ef4444' : '#f59e0b';
+
+                            item.innerHTML = `
+                                <div>
+                                    <span class="result-symbol">${{result.symbol}}</span>
+                                    <span style="color: ${{signalColor}};">${{result.signal}}</span>
+                                    <span style="color: #888;">@ $${{result.price?.toFixed(2) || 'N/A'}}</span>
+                                </div>
+                                <div class="result-details">
+                                    RSI: ${{result.rsi?.toFixed(1) || 'N/A'}} | EMA: $${{result.ema?.toFixed(2) || 'N/A'}}
+                                </div>
+                            `;
+                            resultsList.appendChild(item);
+                        }});
+                        resultsPanel.classList.add('visible');
+                        statusDiv.textContent = `✓ Scan complete: Found ${{results.length}} signal(s)`;
+                    }} else {{
+                        statusDiv.textContent = 'No signals found in market scan';
+                        statusDiv.className = '';
+                    }}
+                }} catch (e) {{
+                    statusDiv.textContent = `Error during scan: ${{e.message}}`;
+                    statusDiv.className = 'error';
+                    console.error('Autoscan error:', e);
+                }} finally {{
+                    btn.disabled = false;
+                }}
+            }}
+
             // Auto-refresh every 30 seconds
             setTimeout(() => location.reload(), 30000);
         </script>
@@ -1438,6 +1697,15 @@ def api_status():
     })
 
 
+# Stock list for autoscan endpoint
+stocks_to_scan = [
+    'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'BRK.B', 'JNJ', 'V',
+    'WMT', 'JPM', 'PG', 'XOM', 'MA', 'INTC', 'CSCO', 'VZ', 'KO', 'NFLX',
+    'AMD', 'CRM', 'IBM', 'QCOM', 'PYPL', 'UBER', 'AVGO', 'MU', 'ADBE', 'NOW',
+    'AMAT', 'ASML', 'LRCX', 'SNPS', 'CDNS', 'MCHP', 'KLAC', 'NXPI', 'SIRI', 'SMCI'
+]
+
+
 @app.route("/api/chart-data/<symbol>")
 def chart_data(symbol):
     """Fetch OHLC data and calculate indicators."""
@@ -1502,6 +1770,83 @@ def chart_data(symbol):
         })
     except Exception as e:
         return jsonify({"error": f"Data error: {str(e)}"}), 400
+
+
+@app.route("/api/autoscan")
+def autoscan():
+    """Scan stocks for oversold conditions with technical filters."""
+    results = []
+    scanned = 0
+    timestamp = datetime.now().isoformat()
+
+    for symbol in stocks_to_scan:
+        try:
+            scanned += 1
+            ticker = yf.Ticker(symbol)
+
+            # Fetch 5-minute candle data for 5 days
+            hist = ticker.history(period="5d", interval="5m")
+
+            if hist.empty or len(hist) < 20:
+                continue
+
+            # Get current price and volume
+            current_price = float(hist['Close'].iloc[-1])
+            current_volume = int(hist['Volume'].iloc[-1])
+
+            # Filter 1: Price range $2.00 - $20.00
+            if current_price < 2.00 or current_price > 20.00:
+                continue
+
+            # Filter 2: Current volume >= 500,000 shares
+            if current_volume < 500000:
+                continue
+
+            # Filter 3: Relative Volume (RVol > 2.5)
+            avg_volume_last_20 = np.mean(hist['Volume'].iloc[-20:].values)
+            if avg_volume_last_20 == 0:
+                continue
+            rvol = current_volume / avg_volume_last_20
+            if rvol <= 2.5:
+                continue
+
+            # Calculate RSI
+            closes = hist['Close'].values.tolist()
+            rsi_values = calculate_rsi(closes)
+
+            if not rsi_values or len(rsi_values) < 3:
+                continue
+
+            # Filter 4: RSI(14) < 35 in last 3 bars
+            last_3_rsi = rsi_values[-3:]
+            if not any(rsi < 35 for rsi in last_3_rsi):
+                continue
+
+            # Get the most recent RSI value
+            current_rsi = rsi_values[-1]
+
+            results.append({
+                "symbol": symbol,
+                "price": round(current_price, 2),
+                "volume": current_volume,
+                "rvol": round(rvol, 2),
+                "rsi": round(current_rsi, 2)
+            })
+
+        except Exception as e:
+            # Log error but continue scanning other stocks
+            print(f"Error scanning {symbol}: {str(e)}")
+            continue
+
+    # Sort results by RSI (lowest first = most oversold)
+    results.sort(key=lambda x: x["rsi"])
+
+    return jsonify({
+        "results": results,
+        "count": len(results),
+        "scanned": scanned,
+        "timestamp": timestamp
+    })
 
 
 if __name__ == "__main__":
